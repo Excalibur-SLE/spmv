@@ -11,10 +11,63 @@
 using namespace spmv;
 
 template <typename T>
+Eigen::Matrix<T, Eigen::Dynamic, 1>
+Matrix<T>::spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
+{
+  Eigen::Matrix<T, Eigen::Dynamic, 1> y(_matA.rows());
+  y.setZero();
+  const int* rowptr = _matA.outerIndexPtr();
+  const int* colind = _matA.innerIndexPtr();
+  const T* values = _matA.valuePtr();
+  const int* rowptr_remote = _matA_remote.outerIndexPtr();
+  const int* colind_remote = _matA_remote.innerIndexPtr();
+  const T* values_remote = _matA_remote.valuePtr();
+  const T* b_ptr = b.data();
+  T* y_ptr = y.data();
+
+  for (int i = 0; i < _matA.rows(); ++i)
+  {
+    T y_tmp = 0;
+
+    // Compute symmetric SpMV on local block
+    for (int j = rowptr[i]; j < rowptr[i + 1]; ++j)
+    {
+      int col = colind[j];
+      T val = values[j];
+      y_tmp += val * b_ptr[col];
+      y_ptr[col] += val * b_ptr[i];
+    }
+
+    // Compute vanilla SpMV on remote block
+    for (int j = rowptr_remote[i]; j < rowptr_remote[i + 1]; ++j)
+    {
+      y_tmp += values_remote[j] * b_ptr[colind_remote[j]];
+    }
+
+    y_ptr[i] = y_tmp;
+  }
+  return y;
+}
+
+template <typename T>
 Matrix<T>::Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> A,
                   std::shared_ptr<spmv::L2GMap> col_map,
                   std::shared_ptr<spmv::L2GMap> row_map)
-    : _matA(A), _col_map(col_map), _row_map(row_map)
+    : _matA(A), _col_map(col_map), _row_map(row_map), _nnz(A.nonZeros()),
+      _symmetric(false)
+{
+#ifdef EIGEN_USE_MKL_ALL
+  mkl_init();
+#endif
+}
+
+template <typename T>
+Matrix<T>::Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> Alocal,
+                  Eigen::SparseMatrix<T, Eigen::RowMajor> Aremote,
+                  std::shared_ptr<spmv::L2GMap> col_map,
+                  std::shared_ptr<spmv::L2GMap> row_map, int nnz_full)
+    : _matA(Alocal), _matA_remote(Aremote), _col_map(col_map),
+      _row_map(row_map), _nnz(nnz_full), _symmetric(true)
 {
 #ifdef EIGEN_USE_MKL_ALL
   mkl_init();
@@ -29,6 +82,15 @@ Matrix<T>::~Matrix()
 #endif
 }
 
+template <typename T>
+size_t Matrix<T>::size() const
+{
+  size_t total_bytes;
+  total_bytes = sizeof(int) * (_matA.rows() + _matA_remote.rows())
+                + (sizeof(int) + sizeof(T))
+                      * (_matA.nonZeros() + _matA_remote.nonZeros());
+  return total_bytes;
+}
 //-----------------------------------------------------------------------------
 #ifdef EIGEN_USE_MKL_ALL
 template <>
@@ -113,9 +175,17 @@ Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>
         const Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
 {
   Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_matA.rows());
-  const MKL_Complex16 one({1.0, 0.0}), zero({0.0, 0.0});
-  mkl_sparse_z_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, A_mkl, mat_desc,
-                  (MKL_Complex16*)b.data(), zero, (MKL_Complex16*)y.data());
+  if (_symmetric)
+  {
+    throw std::runtime_error("Multiplication not yet implemented for symmetric "
+                             "matrices for complex data");
+  }
+  else
+  {
+    const MKL_Complex16 one({1.0, 0.0}), zero({0.0, 0.0});
+    mkl_sparse_z_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, A_mkl, mat_desc,
+                    (MKL_Complex16*)b.data(), zero, (MKL_Complex16*)y.data());
+  }
   return y;
 }
 //----------------------
@@ -125,9 +195,17 @@ Matrix<std::complex<double>>::transpmult(
     const Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
 {
   Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_matA.rows());
-  const MKL_Complex16 one({1.0, 0.0}), zero({0.0, 0.0});
-  mkl_sparse_z_mv(SPARSE_OPERATION_TRANSPOSE, one, A_mkl, mat_desc,
-                  (MKL_Complex16*)b.data(), zero, (MKL_Complex16*)y.data());
+  if (_symmetric)
+  {
+    throw std::runtime_error(
+        "transpmult() operation not yet implemented for symmetric matrices");
+  }
+  else
+  {
+    const MKL_Complex16 one({1.0, 0.0}), zero({0.0, 0.0});
+    mkl_sparse_z_mv(SPARSE_OPERATION_TRANSPOSE, one, A_mkl, mat_desc,
+                    (MKL_Complex16*)b.data(), zero, (MKL_Complex16*)y.data());
+  }
   return y;
 }
 //----------------------
@@ -137,9 +215,17 @@ Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>
         const Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
 {
   Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_matA.rows());
-  const MKL_Complex8 one({1.0, 0.0}), zero({0.0, 0.0});
-  mkl_sparse_c_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, A_mkl, mat_desc,
-                  (MKL_Complex8*)b.data(), zero, (MKL_Complex8*)y.data());
+  if (_symmetric)
+  {
+    throw std::runtime_error("Multiplication not yet implemented for symmetric "
+                             "matrices for complex data");
+  }
+  else
+  {
+    const MKL_Complex8 one({1.0, 0.0}), zero({0.0, 0.0});
+    mkl_sparse_c_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, A_mkl, mat_desc,
+                    (MKL_Complex8*)b.data(), zero, (MKL_Complex8*)y.data());
+  }
   return y;
 }
 //----------------------
@@ -149,9 +235,17 @@ Matrix<std::complex<float>>::transpmult(
     const Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
 {
   Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_matA.rows());
-  const MKL_Complex8 one({1.0, 0.0}), zero({0.0, 0.0});
-  mkl_sparse_c_mv(SPARSE_OPERATION_TRANSPOSE, one, A_mkl, mat_desc,
-                  (MKL_Complex8*)b.data(), zero, (MKL_Complex8*)y.data());
+  if (_symmetric)
+  {
+    throw std::runtime_error(
+        "transpmult() operation not yet implemented for symmetric matrices");
+  }
+  else
+  {
+    const MKL_Complex8 one({1.0, 0.0}), zero({0.0, 0.0});
+    mkl_sparse_c_mv(SPARSE_OPERATION_TRANSPOSE, one, A_mkl, mat_desc,
+                    (MKL_Complex8*)b.data(), zero, (MKL_Complex8*)y.data());
+  }
   return y;
 }
 //----------------------
@@ -159,8 +253,15 @@ template <>
 Eigen::VectorXd Matrix<double>::operator*(const Eigen::VectorXd& b) const
 {
   Eigen::VectorXd y(_matA.rows());
-  mkl_sparse_d_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, A_mkl, mat_desc,
-                  b.data(), 0.0, y.data());
+  if (_symmetric)
+  {
+    y = spmv_sym(b);
+  }
+  else
+  {
+    mkl_sparse_d_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, A_mkl, mat_desc,
+                    b.data(), 0.0, y.data());
+  }
 
   return y;
 }
@@ -169,9 +270,16 @@ template <>
 Eigen::VectorXd Matrix<double>::transpmult(const Eigen::VectorXd& b) const
 {
   Eigen::VectorXd y(_matA.cols());
-  mkl_sparse_d_mv(SPARSE_OPERATION_TRANSPOSE, 1.0, A_mkl, mat_desc, b.data(),
-                  0.0, y.data());
-
+  if (_symmetric)
+  {
+    throw std::runtime_error(
+        "transpmult() operation not yet implemented for symmetric matrices");
+  }
+  else
+  {
+    mkl_sparse_d_mv(SPARSE_OPERATION_TRANSPOSE, 1.0, A_mkl, mat_desc, b.data(),
+                    0.0, y.data());
+  }
   return y;
 }
 //----------------------
@@ -179,9 +287,15 @@ template <>
 Eigen::VectorXf Matrix<float>::operator*(const Eigen::VectorXf& b) const
 {
   Eigen::VectorXf y(_matA.rows());
-  mkl_sparse_s_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, A_mkl, mat_desc,
-                  b.data(), 0.0, y.data());
-
+  if (_symmetric)
+  {
+    y = spmv_sym(b);
+  }
+  else
+  {
+    mkl_sparse_s_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, A_mkl, mat_desc,
+                    b.data(), 0.0, y.data());
+  }
   return y;
 }
 //---------------------
@@ -189,9 +303,16 @@ template <>
 Eigen::VectorXf Matrix<float>::transpmult(const Eigen::VectorXf& b) const
 {
   Eigen::VectorXf y(_matA.cols());
-  mkl_sparse_s_mv(SPARSE_OPERATION_TRANSPOSE, 1.0, A_mkl, mat_desc, b.data(),
-                  0.0, y.data());
-
+  if (_symmetric)
+  {
+    throw std::runtime_error(
+        "transpmult() operation not yet implemented for symmetric matrices");
+  }
+  else
+  {
+    mkl_sparse_s_mv(SPARSE_OPERATION_TRANSPOSE, 1.0, A_mkl, mat_desc, b.data(),
+                    0.0, y.data());
+  }
   return y;
 }
 #endif
@@ -200,21 +321,39 @@ template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1> Matrix<T>::
 operator*(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 {
-  return _matA * b;
+  if (_symmetric)
+  {
+    return spmv_sym(b);
+  }
+  else
+  {
+    return _matA * b;
+  }
 }
+
 //-----------------------------------------------------------------------------
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1>
 Matrix<T>::transpmult(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 {
-  return _matA.transpose() * b;
+  if (_symmetric)
+  {
+    throw std::runtime_error(
+        "transpmult() operation not yet implemented for symmetric matrices");
+  }
+  else
+  {
+    return _matA.transpose() * b;
+  }
 }
 //-----------------------------------------------------------------------------
 template <typename T>
-Matrix<T> Matrix<T>::create_matrix(
-    MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
-    std::int64_t nrows_local, std::int64_t ncols_local,
-    std::vector<std::int64_t> row_ghosts, std::vector<std::int64_t> col_ghosts)
+Matrix<T>
+Matrix<T>::create_matrix(MPI_Comm comm,
+                         const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
+                         std::int64_t nrows_local, std::int64_t ncols_local,
+                         std::vector<std::int64_t> row_ghosts,
+                         std::vector<std::int64_t> col_ghosts, bool symmetric)
 {
 
   int mpi_size, mpi_rank;
@@ -369,6 +508,7 @@ Matrix<T> Matrix<T>::create_matrix(
 
   std::vector<Eigen::Triplet<T>> mat_data;
   for (int row = 0; row < nrows_local; ++row)
+  {
     for (int j = Aouter[row]; j < Aouter[row + 1]; ++j)
     {
       int col = Ainner[j];
@@ -386,6 +526,7 @@ Matrix<T> Matrix<T>::create_matrix(
       assert(col >= 0 and col < (int)(ncols_local + col_ghost_map.size()));
       mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
     }
+  }
 
   // Add received data
   pos = 0;
@@ -424,17 +565,55 @@ Matrix<T> Matrix<T>::create_matrix(
   for (auto& q : col_ghost_map)
     new_col_ghosts.push_back(q.first);
 
-  Eigen::SparseMatrix<T, Eigen::RowMajor> B(
-      nrows_local, ncols_local + new_col_ghosts.size());
-  B.setFromTriplets(mat_data.begin(), mat_data.end());
+  if (symmetric)
+  {
+    // Rebuild the sparse matrix block into two sub-blocks
+    // The "local" sub-block includes nonzeros in the lower half of the matrix
+    // within the local column range of this rank The "remote" sub-block
+    // includes all nonzeros out of the local column range of this rank
+    Eigen::SparseMatrix<T, Eigen::RowMajor> Blocal(
+        nrows_local, ncols_local + new_col_ghosts.size());
+    Eigen::SparseMatrix<T, Eigen::RowMajor> Bremote(
+        nrows_local, ncols_local + new_col_ghosts.size());
 
-  std::shared_ptr<spmv::L2GMap> col_map
-      = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts);
-  std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
-      comm, nrows_local, std::vector<std::int64_t>());
+    for (auto const& elem : mat_data)
+    {
+      int row = elem.row();
+      int col = elem.col();
+      std::int64_t global_col = col_ghosts[col - ncols_local];
+      // If element is in local column range, insert only if it's on or below
+      // main diagonal
+      if (col < ncols_local && row >= global_col)
+        Blocal.insert(row, col) = elem.value();
+      // If element is out of local column range, always insert
+      if (col >= ncols_local)
+        Bremote.insert(row, col) = elem.value();
+    }
+    Blocal.makeCompressed();
+    Bremote.makeCompressed();
 
-  spmv::Matrix<T> b(B, col_map, row_map);
-  return b;
+    std::shared_ptr<spmv::L2GMap> col_map
+        = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts);
+    std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
+        comm, nrows_local, std::vector<std::int64_t>());
+
+    spmv::Matrix<T> b(Blocal, Bremote, col_map, row_map, mat.nonZeros());
+    return b;
+  }
+  else
+  {
+    Eigen::SparseMatrix<T, Eigen::RowMajor> B(
+        nrows_local, ncols_local + new_col_ghosts.size());
+    B.setFromTriplets(mat_data.begin(), mat_data.end());
+
+    std::shared_ptr<spmv::L2GMap> col_map
+        = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts);
+    std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
+        comm, nrows_local, std::vector<std::int64_t>());
+
+    spmv::Matrix<T> b(B, col_map, row_map);
+    return b;
+  }
 }
 
 // Explicit instantiation

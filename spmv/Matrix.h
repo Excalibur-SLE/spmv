@@ -30,9 +30,26 @@ public:
   Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> A,
          std::shared_ptr<spmv::L2GMap> col_map,
          std::shared_ptr<spmv::L2GMap> row_map);
+  /// This constructor just copies in the data from the "local" and "remote"
+  /// sub-blocks of a symmetric matrix. To build a Matrix from more
+  /// general data, use `Matrix::create_matrix` instead.
+  Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> Alocal,
+         Eigen::SparseMatrix<T, Eigen::RowMajor> Aremote,
+         std::shared_ptr<spmv::L2GMap> col_map,
+         std::shared_ptr<spmv::L2GMap> row_map, int nnz_full);
 
   /// Destructor (destroys MKL structs, if using MKL)
   ~Matrix();
+
+  // Number of rows in the matrix
+  int rows() const { return _matA.rows(); }
+  // Number of columns in the matrix
+  int cols() const { return _matA.cols(); }
+  // Number of nonzeros in the matrix
+  int nonZeros() const { return (_symmetric) ? _matA.nonZeros() : _nnz; }
+
+  // The size of the matrix encoding in bytes
+  size_t size() const;
 
   /// MatVec operator for A x
   Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -62,7 +79,7 @@ public:
                 const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
                 std::int64_t nrows_local, std::int64_t ncols_local,
                 std::vector<std::int64_t> row_ghosts,
-                std::vector<std::int64_t> col_ghosts);
+                std::vector<std::int64_t> col_ghosts, bool symmetric = false);
 
 private:
 // MKL pointers to Eigen data
@@ -74,9 +91,17 @@ private:
 
   // Storage for Matrix
   Eigen::SparseMatrix<T, Eigen::RowMajor> _matA;
+  Eigen::SparseMatrix<T, Eigen::RowMajor> _matA_remote;
 
   // Column and Row maps: usually _row_map will not have ghosts.
   std::shared_ptr<spmv::L2GMap> _col_map;
   std::shared_ptr<spmv::L2GMap> _row_map;
+
+  int _nnz;
+  bool _symmetric;
+
+  // Helper functions
+  Eigen::Matrix<T, Eigen::Dynamic, 1>
+  spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
 };
 } // namespace spmv

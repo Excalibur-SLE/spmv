@@ -580,10 +580,11 @@ Matrix<T>::create_matrix(MPI_Comm comm,
     {
       int row = elem.row();
       int col = elem.col();
-      std::int64_t global_col = col_ghosts[col - ncols_local];
+      std::int64_t global_row = row + row_ranges[mpi_rank];
+      std::int64_t global_col = (col < ncols_local) ? col + col_ranges[mpi_rank] : new_col_ghosts[col];
       // If element is in local column range, insert only if it's on or below
       // main diagonal
-      if (col < ncols_local && row >= global_col)
+      if (col < ncols_local && global_row >= global_col)
         Blocal.insert(row, col) = elem.value();
       // If element is out of local column range, always insert
       if (col >= ncols_local)

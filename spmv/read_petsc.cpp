@@ -33,7 +33,8 @@ spmv::Matrix<double>
 spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
 {
   Eigen::SparseMatrix<double, Eigen::RowMajor> A;
-  Eigen::SparseMatrix<double, Eigen::RowMajor> A_remote;
+  auto A_remote
+      = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -79,6 +80,10 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
 
   nrows_local = row_ranges[mpi_rank + 1] - row_ranges[mpi_rank];
   ncols_local = col_ranges[mpi_rank + 1] - col_ranges[mpi_rank];
+
+  auto A_diagonal
+      = std::make_shared<Eigen::Matrix<double, Eigen::Dynamic, 1>>(nrows_local);
+  A_diagonal->setZero();
 
   // Reset memory block and read nnz per row for all rows
   memblock.resize(nrows * 4);
@@ -143,7 +148,7 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
 
   A.resize(nrows_local, col_indices.size());
   if (symmetric)
-    A_remote.resize(nrows_local, col_indices.size());
+    A_remote->resize(nrows_local, col_indices.size());
 
   // Read values
   std::vector<char> valuedata(nnz_size * 8);
@@ -154,10 +159,10 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
   // Pointer to values
   char* vptr = valuedata.data();
   ptr = memblock.data();
-  for (std::int64_t row = row_ranges[mpi_rank]; row < row_ranges[mpi_rank + 1];
-       ++row)
+  for (std::int64_t global_row = row_ranges[mpi_rank];
+       global_row < row_ranges[mpi_rank + 1]; ++global_row)
   {
-    for (std::int64_t j = 0; j < nnz[row]; ++j)
+    for (std::int64_t j = 0; j < nnz[global_row]; ++j)
     {
       std::swap(*vptr, *(vptr + 7));
       std::swap(*(vptr + 1), *(vptr + 6));
@@ -174,15 +179,18 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
         std::int32_t global_col = *((std::int32_t*)ptr);
         // If element is in local column range, insert only if it's on or
         // below main diagonal
-        if (col < ncols_local && row >= global_col)
-          A.insert(row - row_ranges[mpi_rank], col) = val;
+        if (col < ncols_local && global_row > global_col)
+          A.insert(global_row - row_ranges[mpi_rank], col) = val;
+        // If element on main diagonal, store separately
+        if (col < ncols_local && global_row == global_col)
+          (*A_diagonal)(global_row - row_ranges[mpi_rank]) = val;
         // If element is out of local column range, always insert
         if (col >= ncols_local)
-          A_remote.insert(row - row_ranges[mpi_rank], col) = val;
+          A_remote->insert(global_row - row_ranges[mpi_rank], col) = val;
       }
       else
       {
-        A.insert(row - row_ranges[mpi_rank], col) = val;
+        A.insert(global_row - row_ranges[mpi_rank], col) = val;
       }
       ptr += 4;
     }
@@ -190,7 +198,7 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
 
   A.makeCompressed();
   if (symmetric)
-    A_remote.makeCompressed();
+    A_remote->makeCompressed();
 
   std::vector<std::int64_t> ghosts(col_indices.size() - ncols_local);
   for (auto& q : col_indices)
@@ -201,7 +209,8 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
   auto row_map = std::make_shared<spmv::L2GMap>(comm, nrows_local,
                                                 std::vector<std::int64_t>());
   if (symmetric)
-    return spmv::Matrix<double>(A, A_remote, col_map, row_map, nnz_tot);
+    return spmv::Matrix<double>(A, A_remote, A_diagonal, col_map, row_map,
+                                nnz_tot);
   else
     return spmv::Matrix<double>(A, col_map, row_map);
 }

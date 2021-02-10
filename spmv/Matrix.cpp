@@ -11,7 +11,7 @@
 using namespace spmv;
 
 template <typename T>
-Matrix<T>::Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> A,
+Matrix<T>::Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> A,
                   std::shared_ptr<spmv::L2GMap> col_map,
                   std::shared_ptr<spmv::L2GMap> row_map)
     : _matA(A), _col_map(col_map), _row_map(row_map)
@@ -35,9 +35,9 @@ template <>
 void Matrix<double>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_d_create_csr(
-      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA.rows(), _matA.cols(),
-      _matA.outerIndexPtr(), _matA.outerIndexPtr() + 1, _matA.innerIndexPtr(),
-      _matA.valuePtr());
+      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA->rows(), _matA->cols(),
+      _matA->outerIndexPtr(), _matA->outerIndexPtr() + 1,
+      _matA->innerIndexPtr(), _matA->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(A_mkl);
@@ -54,9 +54,9 @@ template <>
 void Matrix<std::complex<double>>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_z_create_csr(
-      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA.rows(), _matA.cols(),
-      _matA.outerIndexPtr(), _matA.outerIndexPtr() + 1, _matA.innerIndexPtr(),
-      (MKL_Complex16*)_matA.valuePtr());
+      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA->rows(), _matA->cols(),
+      _matA->outerIndexPtr(), _matA->outerIndexPtr() + 1,
+      _matA->innerIndexPtr(), (MKL_Complex16*)_matA->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(A_mkl);
@@ -73,9 +73,9 @@ template <>
 void Matrix<float>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_s_create_csr(
-      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA.rows(), _matA.cols(),
-      _matA.outerIndexPtr(), _matA.outerIndexPtr() + 1, _matA.innerIndexPtr(),
-      _matA.valuePtr());
+      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA->rows(), _matA->cols(),
+      _matA->outerIndexPtr(), _matA->outerIndexPtr() + 1,
+      _matA->innerIndexPtr(), _matA->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(A_mkl);
@@ -92,9 +92,9 @@ template <>
 void Matrix<std::complex<float>>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_c_create_csr(
-      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA.rows(), _matA.cols(),
-      _matA.outerIndexPtr(), _matA.outerIndexPtr() + 1, _matA.innerIndexPtr(),
-      (MKL_Complex8*)_matA.valuePtr());
+      &A_mkl, SPARSE_INDEX_BASE_ZERO, _matA->rows(), _matA->cols(),
+      _matA->outerIndexPtr(), _matA->outerIndexPtr() + 1,
+      _matA->innerIndexPtr(), (MKL_Complex8*)_matA->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(A_mkl);
@@ -112,7 +112,7 @@ Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>
     Matrix<std::complex<double>>::operator*(
         const Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_matA.rows());
+  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_matA->rows());
   const MKL_Complex16 one({1.0, 0.0}), zero({0.0, 0.0});
   mkl_sparse_z_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, A_mkl, mat_desc,
                   (MKL_Complex16*)b.data(), zero, (MKL_Complex16*)y.data());
@@ -124,7 +124,7 @@ Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>
 Matrix<std::complex<double>>::transpmult(
     const Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_matA.rows());
+  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_matA->rows());
   const MKL_Complex16 one({1.0, 0.0}), zero({0.0, 0.0});
   mkl_sparse_z_mv(SPARSE_OPERATION_TRANSPOSE, one, A_mkl, mat_desc,
                   (MKL_Complex16*)b.data(), zero, (MKL_Complex16*)y.data());
@@ -136,7 +136,7 @@ Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>
     Matrix<std::complex<float>>::operator*(
         const Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_matA.rows());
+  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_matA->rows());
   const MKL_Complex8 one({1.0, 0.0}), zero({0.0, 0.0});
   mkl_sparse_c_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, A_mkl, mat_desc,
                   (MKL_Complex8*)b.data(), zero, (MKL_Complex8*)y.data());
@@ -148,7 +148,7 @@ Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>
 Matrix<std::complex<float>>::transpmult(
     const Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_matA.rows());
+  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_matA->rows());
   const MKL_Complex8 one({1.0, 0.0}), zero({0.0, 0.0});
   mkl_sparse_c_mv(SPARSE_OPERATION_TRANSPOSE, one, A_mkl, mat_desc,
                   (MKL_Complex8*)b.data(), zero, (MKL_Complex8*)y.data());
@@ -158,7 +158,7 @@ Matrix<std::complex<float>>::transpmult(
 template <>
 Eigen::VectorXd Matrix<double>::operator*(const Eigen::VectorXd& b) const
 {
-  Eigen::VectorXd y(_matA.rows());
+  Eigen::VectorXd y(_matA->rows());
   mkl_sparse_d_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, A_mkl, mat_desc,
                   b.data(), 0.0, y.data());
 
@@ -168,7 +168,7 @@ Eigen::VectorXd Matrix<double>::operator*(const Eigen::VectorXd& b) const
 template <>
 Eigen::VectorXd Matrix<double>::transpmult(const Eigen::VectorXd& b) const
 {
-  Eigen::VectorXd y(_matA.cols());
+  Eigen::VectorXd y(_matA->cols());
   mkl_sparse_d_mv(SPARSE_OPERATION_TRANSPOSE, 1.0, A_mkl, mat_desc, b.data(),
                   0.0, y.data());
 
@@ -178,7 +178,7 @@ Eigen::VectorXd Matrix<double>::transpmult(const Eigen::VectorXd& b) const
 template <>
 Eigen::VectorXf Matrix<float>::operator*(const Eigen::VectorXf& b) const
 {
-  Eigen::VectorXf y(_matA.rows());
+  Eigen::VectorXf y(_matA->rows());
   mkl_sparse_s_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, A_mkl, mat_desc,
                   b.data(), 0.0, y.data());
 
@@ -188,7 +188,7 @@ Eigen::VectorXf Matrix<float>::operator*(const Eigen::VectorXf& b) const
 template <>
 Eigen::VectorXf Matrix<float>::transpmult(const Eigen::VectorXf& b) const
 {
-  Eigen::VectorXf y(_matA.cols());
+  Eigen::VectorXf y(_matA->cols());
   mkl_sparse_s_mv(SPARSE_OPERATION_TRANSPOSE, 1.0, A_mkl, mat_desc, b.data(),
                   0.0, y.data());
 
@@ -200,19 +200,19 @@ template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1> Matrix<T>::
 operator*(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 {
-  return _matA * b;
+  return (*_matA) * b;
 }
 //-----------------------------------------------------------------------------
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1>
 Matrix<T>::transpmult(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 {
-  return _matA.transpose() * b;
+  return _matA->transpose() * b;
 }
 //-----------------------------------------------------------------------------
 template <typename T>
 Matrix<T> Matrix<T>::create_matrix(
-    MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
+    MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
     std::int64_t nrows_local, std::int64_t ncols_local,
     std::vector<std::int64_t> row_ghosts, std::vector<std::int64_t> col_ghosts)
 {
@@ -424,14 +424,14 @@ Matrix<T> Matrix<T>::create_matrix(
   for (auto& q : col_ghost_map)
     new_col_ghosts.push_back(q.first);
 
-  Eigen::SparseMatrix<T, Eigen::RowMajor> B(
+  auto B = std::make_shared<Eigen::SparseMatrix<T, Eigen::RowMajor>>(
       nrows_local, ncols_local + new_col_ghosts.size());
-  B.setFromTriplets(mat_data.begin(), mat_data.end());
+  B->setFromTriplets(mat_data.begin(), mat_data.end());
 
-  std::shared_ptr<spmv::L2GMap> col_map
+  auto col_map
       = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts);
-  std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
-      comm, nrows_local, std::vector<std::int64_t>());
+  auto row_map = std::make_shared<spmv::L2GMap>(comm, nrows_local,
+                                                std::vector<std::int64_t>());
 
   spmv::Matrix<T> b(B, col_map, row_map);
   return b;

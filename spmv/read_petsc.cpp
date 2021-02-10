@@ -32,7 +32,7 @@ std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
 spmv::Matrix<double> spmv::read_petsc_binary(MPI_Comm comm,
                                              std::string filename)
 {
-  Eigen::SparseMatrix<double, Eigen::RowMajor> A;
+  auto A = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -140,7 +140,7 @@ spmv::Matrix<double> spmv::read_petsc_binary(MPI_Comm comm,
         ++c;
       }
 
-    A.resize(nrows_local, col_indices.size());
+    A->resize(nrows_local, col_indices.size());
 
     // Read values
     std::vector<char> valuedata(nnz_size * 8);
@@ -167,14 +167,14 @@ spmv::Matrix<double> spmv::read_petsc_binary(MPI_Comm comm,
         std::int32_t col = col_indices[*((std::int32_t*)ptr)];
         ptr += 4;
 
-        A.insert(row - row_ranges[mpi_rank], col) = val;
+        A->insert(row - row_ranges[mpi_rank], col) = val;
       }
     }
   }
   else
     throw std::runtime_error("Could not open file");
 
-  A.makeCompressed();
+  A->makeCompressed();
 
   std::vector<std::int64_t> ghosts(col_indices.size() - ncols_local);
   for (auto& q : col_indices)

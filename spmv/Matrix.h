@@ -25,9 +25,9 @@ class Matrix
 {
   /// Matrix with row and column maps.
 public:
-  /// This constructor just copies in the data. To build a Matrix from more
+  /// This constructor just shares the data. To build a Matrix from more
   /// general data, use `Matrix::create_matrix` instead.
-  Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> A,
+  Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> A,
          std::shared_ptr<spmv::L2GMap> col_map,
          std::shared_ptr<spmv::L2GMap> row_map);
 
@@ -49,8 +49,8 @@ public:
   std::shared_ptr<const L2GMap> col_map() const { return _col_map; }
 
   /// Access the underlying local sparse matrix
-  Eigen::SparseMatrix<T, Eigen::RowMajor>& mat() { return _matA; }
-  const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat() const { return _matA; }
+  Eigen::SparseMatrix<T, Eigen::RowMajor>& mat() { return *_matA; }
+  const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat() const { return *_matA; }
 
   /// Create an `spmv::Matrix` from an Eigen::SparseMatrix and row and column
   /// mappings, such that the resulting matrix has no row ghosts, but only
@@ -59,7 +59,7 @@ public:
   /// also change in this process.
   static Matrix<T>
   create_matrix(MPI_Comm comm,
-                const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
+                const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
                 std::int64_t nrows_local, std::int64_t ncols_local,
                 std::vector<std::int64_t> row_ghosts,
                 std::vector<std::int64_t> col_ghosts);
@@ -73,7 +73,7 @@ private:
 #endif
 
   // Storage for Matrix
-  Eigen::SparseMatrix<T, Eigen::RowMajor> _matA;
+  std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> _matA;
 
   // Column and Row maps: usually _row_map will not have ghosts.
   std::shared_ptr<spmv::L2GMap> _col_map;

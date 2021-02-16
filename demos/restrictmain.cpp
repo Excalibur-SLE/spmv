@@ -121,7 +121,18 @@ void restrict_main()
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
+#ifdef _OPENMP
+  int provided;
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+  if (provided < MPI_THREAD_FUNNELED)
+  {
+    std::cout << "The threading support level is lesser than required"
+              << std::endl;
+    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+  }
+#else
   MPI_Init(&argc, &argv);
+#endif
 
   restrict_main();
 

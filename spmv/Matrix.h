@@ -87,27 +87,68 @@ public:
                 std::vector<std::int64_t> col_ghosts, bool symmetric = false);
 
 private:
-// MKL pointers to Eigen data
-#ifdef EIGEN_USE_MKL_ALL
-  sparse_matrix_t mat_mkl;
-  struct matrix_descr mat_desc;
-  void mkl_init();
-#endif
-
-  // Storage for Matrix
+  // Storage for matrix
   Eigen::SparseMatrix<T, Eigen::RowMajor> _mat_local;
   std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_remote;
   std::shared_ptr<Eigen::Matrix<T, Eigen::Dynamic, 1>> _mat_diagonal;
+#ifdef EIGEN_USE_MKL_ALL
+  // MKL pointers to Eigen data
+  sparse_matrix_t _mat_mkl;
+  struct matrix_descr _mat_desc;
+#endif
 
   // Column and Row maps: usually _row_map will not have ghosts.
   std::shared_ptr<spmv::L2GMap> _col_map;
   std::shared_ptr<spmv::L2GMap> _row_map;
 
+  // Auxiliary data
   int _nnz;
   bool _symmetric;
 
+#ifdef _OPENMP
+  struct ConflictMap
+  {
+    int length;
+    int* pos;
+    short* tid;
+
+    ConflictMap(const int ncnfls) : length(ncnfls)
+    {
+      pos = new int[ncnfls];
+      tid = new short[ncnfls];
+    }
+
+    ~ConflictMap()
+    {
+      delete pos;
+      delete tid;
+    }
+  };
+
+  int _nthreads;
+  ConflictMap* _cnfl_map;
+  int* _row_split;
+  int *_map_start, *_map_end;
+  T** _y_local;
+#endif
+
   // Helper functions
+#ifdef _OPENMP
+  /// Partition the matrix to threads so that every thread has approximately the
+  /// same number of rows
+  void partition_by_nrows(const int nthreads);
+  /// Partition the matrix to threads so that every thread has approximately the
+  /// same number of non-zeros
+  void partition_by_nnz(const int nthreads);
+  /// Tune the matrix for a number of threads. Can be called multiple times.
+  void tune(const int nthreads);
+#endif
+  /// Symmetric SpMV kernel
   Eigen::Matrix<T, Eigen::Dynamic, 1>
   spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
+#ifdef EIGEN_USE_MKL_ALL
+  /// Setup the Intel MKL library
+  void mkl_init();
+#endif
 };
 } // namespace spmv

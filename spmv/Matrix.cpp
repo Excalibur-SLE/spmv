@@ -96,9 +96,17 @@ template <typename T>
 size_t Matrix<T>::format_size() const
 {
   size_t total_bytes;
-  total_bytes = sizeof(int) * (_mat_local.rows() + _mat_remote->rows())
-                + (sizeof(int) + sizeof(T))
-                      * (_mat_local.nonZeros() + _mat_remote->nonZeros());
+
+  total_bytes = sizeof(int) * _mat_local.rows()
+                + (sizeof(int) + sizeof(T)) * _mat_local.nonZeros();
+  // Contribution of remote block and diagonal
+  if (_symmetric)
+  {
+    total_bytes += sizeof(int) * _mat_remote->rows()
+                   + (sizeof(int) + sizeof(T)) * _mat_remote->nonZeros();
+    total_bytes += sizeof(T) * _mat_local.rows();
+  }
+
   return total_bytes;
 }
 //---------------------

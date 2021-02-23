@@ -120,8 +120,8 @@ private:
 
     ~ConflictMap()
     {
-      delete pos;
-      delete tid;
+      delete[] pos;
+      delete[] tid;
     }
   };
 

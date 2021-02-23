@@ -10,8 +10,37 @@
 
 using namespace spmv;
 
-//-----------------------------------------------------------------------------
 #ifdef _OPENMP
+//-----------------------------------------------------------------------------
+static void** calloc_2d(size_t dim1, size_t dim2, size_t size)
+{
+  char** ret = (char**)malloc(dim1 * sizeof(char*));
+  if (ret != nullptr)
+  {
+    char* area = (char*)calloc(dim1 * dim2, size);
+    if (area != nullptr)
+    {
+      for (size_t i = 0; i < dim1; ++i)
+      {
+        ret[i] = (char*)&area[i * dim2 * size];
+      }
+    }
+    else
+    {
+      free(ret);
+      ret = nullptr;
+    }
+  }
+
+  return (void**)ret;
+}
+//---------------------
+static void free_2d(void** array)
+{
+  free(array[0]);
+  free(array);
+}
+//---------------------
 static size_t get_num_threads()
 {
   const char* threads_env = getenv("OMP_NUM_THREADS");
@@ -83,12 +112,10 @@ Matrix<T>::~Matrix()
 #endif
 #ifdef _OPENMP
   delete _cnfl_map;
-  delete _row_split;
-  delete _map_start;
-  delete _map_end;
-  for (int tid = 0; tid < _nthreads - 1; ++tid)
-    delete _y_local[tid];
-  delete _y_local;
+  delete[] _row_split;
+  delete[] _map_start;
+  delete[] _map_end;
+  free_2d((void**)_y_local);
 #endif
 }
 //---------------------
@@ -530,12 +557,7 @@ void Matrix<T>::tune(const int nthreads)
     // Allocate buffers for "local vectors indexing" method
     // The first thread writes directly to the output vector, so doesn't need a
     // buffer
-    _y_local = new T*[nthreads - 1];
-    for (int tid = 1; tid < nthreads; ++tid)
-    {
-      _y_local[tid - 1] = new T[_mat_local.rows()];
-      memset(_y_local[tid - 1], 0, _row_split[tid] * sizeof(T));
-    }
+    _y_local = (T**)calloc_2d(nthreads - 1, _mat_local.rows(), sizeof(T));
 
     // Build conflict map for local block
     std::map<int, std::unordered_set<int>> row_conflicts;

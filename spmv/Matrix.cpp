@@ -59,11 +59,11 @@ static size_t get_num_threads()
 
 //-----------------------------------------------------------------------------
 template <typename T>
-Matrix<T>::Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
+Matrix<T>::Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
                   std::shared_ptr<spmv::L2GMap> col_map,
                   std::shared_ptr<spmv::L2GMap> row_map)
     : _mat_local(mat), _mat_remote(nullptr), _mat_diagonal(nullptr),
-      _col_map(col_map), _row_map(row_map), _nnz(mat.nonZeros()),
+      _col_map(col_map), _row_map(row_map), _nnz(mat->nonZeros()),
       _symmetric(false)
 #ifdef _OPENMP
       ,
@@ -78,7 +78,7 @@ Matrix<T>::Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
 //---------------------
 template <typename T>
 Matrix<T>::Matrix(
-    Eigen::SparseMatrix<T, Eigen::RowMajor> mat_local,
+    std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
     std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
     std::shared_ptr<Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
     std::shared_ptr<spmv::L2GMap> col_map,
@@ -124,14 +124,14 @@ size_t Matrix<T>::format_size() const
 {
   size_t total_bytes;
 
-  total_bytes = sizeof(int) * _mat_local.rows()
-                + (sizeof(int) + sizeof(T)) * _mat_local.nonZeros();
+  total_bytes = sizeof(int) * _mat_local->rows()
+                + (sizeof(int) + sizeof(T)) * _mat_local->nonZeros();
   // Contribution of remote block and diagonal
   if (_symmetric)
   {
     total_bytes += sizeof(int) * _mat_remote->rows()
                    + (sizeof(int) + sizeof(T)) * _mat_remote->nonZeros();
-    total_bytes += sizeof(T) * _mat_local.rows();
+    total_bytes += sizeof(T) * _mat_local->rows();
   }
 
   return total_bytes;
@@ -147,7 +147,7 @@ operator*(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
   }
   else
   {
-    return _mat_local * b;
+    return (*_mat_local) * b;
   }
 }
 //---------------------
@@ -162,7 +162,7 @@ Matrix<T>::transpmult(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
   }
   else
   {
-    return _mat_local.transpose() * b;
+    return _mat_local->transpose() * b;
   }
 }
 //---------------------
@@ -390,7 +390,7 @@ Matrix<T>::create_matrix(MPI_Comm comm,
     // The "local" sub-block includes nonzeros in the lower half of the matrix
     // within the local column range of this rank The "remote" sub-block
     // includes all nonzeros out of the local column range of this rank
-    Eigen::SparseMatrix<T, Eigen::RowMajor> Blocal(
+    auto Blocal = std::make_shared<Eigen::SparseMatrix<T, Eigen::RowMajor>>(
         nrows_local, ncols_local + new_col_ghosts.size());
     auto Bremote = std::make_shared<Eigen::SparseMatrix<T, Eigen::RowMajor>>(
         nrows_local, ncols_local + new_col_ghosts.size());
@@ -408,7 +408,7 @@ Matrix<T>::create_matrix(MPI_Comm comm,
       // If element is in local column range, insert only if it's on or below
       // main diagonal
       if (col < ncols_local && global_row > global_col)
-        Blocal.insert(row, col) = elem.value();
+        Blocal->insert(row, col) = elem.value();
       // If element is on main diagonal, store seperately
       if (col < ncols_local && global_row == global_col)
         (*Bdiagonal)(row, 1) = elem.value();
@@ -416,7 +416,7 @@ Matrix<T>::create_matrix(MPI_Comm comm,
       if (col >= ncols_local)
         Bremote->insert(row, col) = elem.value();
     }
-    Blocal.makeCompressed();
+    Blocal->makeCompressed();
     Bremote->makeCompressed();
 
     std::shared_ptr<spmv::L2GMap> col_map
@@ -430,9 +430,9 @@ Matrix<T>::create_matrix(MPI_Comm comm,
   }
   else
   {
-    Eigen::SparseMatrix<T, Eigen::RowMajor> B(
+    auto B = std::make_shared<Eigen::SparseMatrix<T, Eigen::RowMajor>>(
         nrows_local, ncols_local + new_col_ghosts.size());
-    B.setFromTriplets(mat_data.begin(), mat_data.end());
+    B->setFromTriplets(mat_data.begin(), mat_data.end());
 
     std::shared_ptr<spmv::L2GMap> col_map
         = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts);
@@ -454,7 +454,7 @@ void Matrix<T>::partition_by_nrows(const int nthreads)
     _row_split = new int[nthreads + 1];
   }
 
-  int nrows = _mat_local.rows();
+  int nrows = _mat_local->rows();
   if (nthreads == 1)
   {
     _row_split[0] = 0;
@@ -488,9 +488,9 @@ void Matrix<T>::partition_by_nrows(const int nthreads)
 template <typename T>
 void Matrix<T>::partition_by_nnz(const int nthreads)
 {
-  const int nrows = _mat_local.rows();
-  const int nnz = _mat_local.nonZeros() + _mat_remote->nonZeros();
-  const int* rowptr = _mat_local.outerIndexPtr();
+  const int nrows = _mat_local->rows();
+  const int nnz = _mat_local->nonZeros() + _mat_remote->nonZeros();
+  const int* rowptr = _mat_local->outerIndexPtr();
   const int* rowptr_outer = _mat_remote->outerIndexPtr();
 
   if (!_row_split)
@@ -557,14 +557,14 @@ void Matrix<T>::tune(const int nthreads)
     // Allocate buffers for "local vectors indexing" method
     // The first thread writes directly to the output vector, so doesn't need a
     // buffer
-    _y_local = (T**)calloc_2d(nthreads - 1, _mat_local.rows(), sizeof(T));
+    _y_local = (T**)calloc_2d(nthreads - 1, _mat_local->rows(), sizeof(T));
 
     // Build conflict map for local block
     std::map<int, std::unordered_set<int>> row_conflicts;
     std::set<int> thread_conflicts;
     int ncnfls = 0;
-    const int* rowptr = _mat_local.outerIndexPtr();
-    const int* colind = _mat_local.innerIndexPtr();
+    const int* rowptr = _mat_local->outerIndexPtr();
+    const int* colind = _mat_local->innerIndexPtr();
     for (int tid = 1; tid < nthreads; ++tid)
     {
       for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
@@ -646,10 +646,10 @@ template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1>
 Matrix<T>::spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<T, Eigen::Dynamic, 1> y(_mat_local.rows());
-  const int* rowptr = _mat_local.outerIndexPtr();
-  const int* colind = _mat_local.innerIndexPtr();
-  const T* values = _mat_local.valuePtr();
+  Eigen::Matrix<T, Eigen::Dynamic, 1> y(_mat_local->rows());
+  const int* rowptr = _mat_local->outerIndexPtr();
+  const int* colind = _mat_local->innerIndexPtr();
+  const T* values = _mat_local->valuePtr();
   const int* rowptr_remote = _mat_remote->outerIndexPtr();
   const int* colind_remote = _mat_remote->innerIndexPtr();
   const T* values_remote = _mat_remote->valuePtr();
@@ -709,7 +709,7 @@ Matrix<T>::spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
     }
   }
 #else
-  for (int i = 0; i < _mat_local.rows(); ++i)
+  for (int i = 0; i < _mat_local->rows(); ++i)
   {
     T y_tmp = diagonal[i] * b_ptr[i];
 
@@ -741,9 +741,9 @@ template <>
 void Matrix<double>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_d_create_csr(
-      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local.rows(), _mat_local.cols(),
-      _mat_local.outerIndexPtr(), _mat_local.outerIndexPtr() + 1,
-      _mat_local.innerIndexPtr(), _mat_local.valuePtr());
+      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
+      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
+      _mat_local->innerIndexPtr(), _mat_local->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -760,9 +760,9 @@ template <>
 void Matrix<std::complex<double>>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_z_create_csr(
-      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local.rows(), _mat_local.cols(),
-      _mat_local.outerIndexPtr(), _mat_local.outerIndexPtr() + 1,
-      _mat_local.innerIndexPtr(), (MKL_Complex16*)_mat_local.valuePtr());
+      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
+      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
+      _mat_local->innerIndexPtr(), (MKL_Complex16*)_mat_local->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -779,9 +779,9 @@ template <>
 void Matrix<float>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_s_create_csr(
-      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local.rows(), _mat_local.cols(),
-      _mat_local.outerIndexPtr(), _mat_local.outerIndexPtr() + 1,
-      _mat_local.innerIndexPtr(), _mat_local.valuePtr());
+      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
+      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
+      _mat_local->innerIndexPtr(), _mat_local->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -798,9 +798,9 @@ template <>
 void Matrix<std::complex<float>>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_c_create_csr(
-      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local.rows(), _mat_local.cols(),
-      _mat_local.outerIndexPtr(), _mat_local.outerIndexPtr() + 1,
-      _mat_local.innerIndexPtr(), (MKL_Complex8*)_mat_local.valuePtr());
+      &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
+      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
+      _mat_local->innerIndexPtr(), (MKL_Complex8*)_mat_local->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -818,7 +818,7 @@ Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>
     Matrix<std::complex<double>>::operator*(
         const Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_mat_local.rows());
+  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_mat_local->rows());
   if (_symmetric)
   {
     throw std::runtime_error("Multiplication not yet implemented for symmetric "
@@ -838,7 +838,7 @@ Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>
 Matrix<std::complex<double>>::transpmult(
     const Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_mat_local.rows());
+  Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_mat_local->rows());
   if (_symmetric)
   {
     throw std::runtime_error(
@@ -858,7 +858,7 @@ Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>
     Matrix<std::complex<float>>::operator*(
         const Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_mat_local.rows());
+  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_mat_local->rows());
   if (_symmetric)
   {
     throw std::runtime_error("Multiplication not yet implemented for symmetric "
@@ -878,7 +878,7 @@ Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>
 Matrix<std::complex<float>>::transpmult(
     const Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
 {
-  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_mat_local.rows());
+  Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_mat_local->rows());
   if (_symmetric)
   {
     throw std::runtime_error(
@@ -896,7 +896,7 @@ Matrix<std::complex<float>>::transpmult(
 template <>
 Eigen::VectorXd Matrix<double>::operator*(const Eigen::VectorXd& b) const
 {
-  Eigen::VectorXd y(_mat_local.rows());
+  Eigen::VectorXd y(_mat_local->rows());
   if (_symmetric)
   {
     y = spmv_sym(b);
@@ -913,7 +913,7 @@ Eigen::VectorXd Matrix<double>::operator*(const Eigen::VectorXd& b) const
 template <>
 Eigen::VectorXd Matrix<double>::transpmult(const Eigen::VectorXd& b) const
 {
-  Eigen::VectorXd y(_mat_local.cols());
+  Eigen::VectorXd y(_mat_local->cols());
   if (_symmetric)
   {
     throw std::runtime_error(
@@ -930,7 +930,7 @@ Eigen::VectorXd Matrix<double>::transpmult(const Eigen::VectorXd& b) const
 template <>
 Eigen::VectorXf Matrix<float>::operator*(const Eigen::VectorXf& b) const
 {
-  Eigen::VectorXf y(_mat_local.rows());
+  Eigen::VectorXf y(_mat_local->rows());
   if (_symmetric)
   {
     y = spmv_sym(b);
@@ -946,7 +946,7 @@ Eigen::VectorXf Matrix<float>::operator*(const Eigen::VectorXf& b) const
 template <>
 Eigen::VectorXf Matrix<float>::transpmult(const Eigen::VectorXf& b) const
 {
-  Eigen::VectorXf y(_mat_local.cols());
+  Eigen::VectorXf y(_mat_local->cols());
   if (_symmetric)
   {
     throw std::runtime_error(

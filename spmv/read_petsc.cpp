@@ -32,7 +32,7 @@ std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
 spmv::Matrix<double>
 spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
 {
-  Eigen::SparseMatrix<double, Eigen::RowMajor> A;
+  auto A = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
   auto A_remote
       = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
 
@@ -146,7 +146,7 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
       ++c;
     }
 
-  A.resize(nrows_local, col_indices.size());
+  A->resize(nrows_local, col_indices.size());
   if (symmetric)
     A_remote->resize(nrows_local, col_indices.size());
 
@@ -180,7 +180,7 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
         // If element is in local column range, insert only if it's on or
         // below main diagonal
         if (col < ncols_local && global_row > global_col)
-          A.insert(global_row - row_ranges[mpi_rank], col) = val;
+          A->insert(global_row - row_ranges[mpi_rank], col) = val;
         // If element on main diagonal, store separately
         if (col < ncols_local && global_row == global_col)
           (*A_diagonal)(global_row - row_ranges[mpi_rank]) = val;
@@ -190,13 +190,13 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
       }
       else
       {
-        A.insert(global_row - row_ranges[mpi_rank], col) = val;
+        A->insert(global_row - row_ranges[mpi_rank], col) = val;
       }
       ptr += 4;
     }
   }
 
-  A.makeCompressed();
+  A->makeCompressed();
   if (symmetric)
     A_remote->makeCompressed();
 

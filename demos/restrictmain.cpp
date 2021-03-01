@@ -28,7 +28,7 @@ void restrict_main()
   auto q = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, "b4.dat");
 
   // Get local and global sizes
-  std::int64_t M = R.mat().rows();
+  std::int64_t M = R.rows();
   auto l2g = R.col_map();
   std::int64_t N = l2g->global_size();
 

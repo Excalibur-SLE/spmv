@@ -27,13 +27,13 @@ class Matrix
 public:
   /// This constructor just copies in the data. To build a Matrix from more
   /// general data, use `Matrix::create_matrix` instead.
-  Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
+  Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
          std::shared_ptr<spmv::L2GMap> col_map,
          std::shared_ptr<spmv::L2GMap> row_map);
   /// This constructor just copies in the data from the "local" and "remote"
   /// sub-blocks of a symmetric matrix. To build a Matrix from more
   /// general data, use `Matrix::create_matrix` instead.
-  Matrix(Eigen::SparseMatrix<T, Eigen::RowMajor> mat_local,
+  Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
          std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
          std::shared_ptr<Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
          std::shared_ptr<spmv::L2GMap> col_map,
@@ -43,11 +43,11 @@ public:
   ~Matrix();
 
   /// Number of rows in the matrix
-  int rows() const { return _mat_local.rows(); }
+  int rows() const { return _mat_local->rows(); }
   /// Number of columns in the matrix
-  int cols() const { return _mat_local.cols(); }
+  int cols() const { return _mat_local->cols(); }
   /// Number of non-zeros in the matrix
-  int non_zeros() const { return (_symmetric) ? _mat_local.nonZeros() : _nnz; }
+  int non_zeros() const { return (_symmetric) ? _mat_local->nonZeros() : _nnz; }
 
   /// The size of the matrix encoding in bytes
   size_t format_size() const;
@@ -66,14 +66,6 @@ public:
   /// Column mapping (local-to-global)
   std::shared_ptr<const L2GMap> col_map() const { return _col_map; }
 
-  /// FIXME: only works for non-symmetric case
-  /// Access the underlying local sparse matrix
-  Eigen::SparseMatrix<T, Eigen::RowMajor>& mat() { return _mat_local; }
-  const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat() const
-  {
-    return _mat_local;
-  }
-
   /// Create an `spmv::Matrix` from an Eigen::SparseMatrix and row and column
   /// mappings, such that the resulting matrix has no row ghosts, but only
   /// column ghosts. This is achieved by sending ghost rows to their owners,
@@ -88,7 +80,7 @@ public:
 
 private:
   // Storage for matrix
-  Eigen::SparseMatrix<T, Eigen::RowMajor> _mat_local;
+  std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_local;
   std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_remote;
   std::shared_ptr<Eigen::Matrix<T, Eigen::Dynamic, 1>> _mat_diagonal;
 #ifdef EIGEN_USE_MKL_ALL

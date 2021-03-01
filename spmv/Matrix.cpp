@@ -59,7 +59,7 @@ static size_t get_num_threads()
 
 //-----------------------------------------------------------------------------
 template <typename T>
-Matrix<T>::Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
+Matrix<T>::Matrix(std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
                   std::shared_ptr<spmv::L2GMap> col_map,
                   std::shared_ptr<spmv::L2GMap> row_map)
     : _mat_local(mat), _mat_remote(nullptr), _mat_diagonal(nullptr),
@@ -78,9 +78,9 @@ Matrix<T>::Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
 //---------------------
 template <typename T>
 Matrix<T>::Matrix(
-    std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
-    std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
-    std::shared_ptr<Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
+    std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
+    std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
+    std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
     std::shared_ptr<spmv::L2GMap> col_map,
     std::shared_ptr<spmv::L2GMap> row_map, int nnz_full)
     : _mat_local(mat_local), _mat_remote(mat_remote),

@@ -27,15 +27,15 @@ class Matrix
 public:
   /// This constructor just copies in the data. To build a Matrix from more
   /// general data, use `Matrix::create_matrix` instead.
-  Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
+  Matrix(std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
          std::shared_ptr<spmv::L2GMap> col_map,
          std::shared_ptr<spmv::L2GMap> row_map);
   /// This constructor just copies in the data from the "local" and "remote"
   /// sub-blocks of a symmetric matrix. To build a Matrix from more
   /// general data, use `Matrix::create_matrix` instead.
-  Matrix(std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
-         std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
-         std::shared_ptr<Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
+  Matrix(std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
+         std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
+         std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
          std::shared_ptr<spmv::L2GMap> col_map,
          std::shared_ptr<spmv::L2GMap> row_map, int nnz_full);
 
@@ -80,9 +80,9 @@ public:
 
 private:
   // Storage for matrix
-  std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_local;
-  std::shared_ptr<Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_remote;
-  std::shared_ptr<Eigen::Matrix<T, Eigen::Dynamic, 1>> _mat_diagonal;
+  std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_local;
+  std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_remote;
+  std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> _mat_diagonal;
 #ifdef EIGEN_USE_MKL_ALL
   // MKL pointers to Eigen data
   sparse_matrix_t _mat_mkl;

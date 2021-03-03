@@ -47,7 +47,7 @@ public:
   /// Number of columns in the matrix
   int cols() const { return _mat_local->cols(); }
   /// Number of non-zeros in the matrix
-  int non_zeros() const { return (_symmetric) ? _mat_local->nonZeros() : _nnz; }
+  int non_zeros() const { return (_symmetric) ? _nnz : _mat_local->nonZeros(); }
 
   /// The size of the matrix encoding in bytes
   size_t format_size() const;

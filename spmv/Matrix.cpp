@@ -326,6 +326,8 @@ Matrix<T>::create_matrix(MPI_Comm comm,
     q.second = c++;
 
   std::vector<Eigen::Triplet<T>> mat_data;
+  std::vector<Eigen::Triplet<T>> mat_remote_data;
+  std::vector<Eigen::Triplet<T>> mat_diagonal_data;
   for (int row = 0; row < nrows_local; ++row)
   {
     for (int j = Aouter[row]; j < Aouter[row + 1]; ++j)
@@ -333,8 +335,8 @@ Matrix<T>::create_matrix(MPI_Comm comm,
       int col = Ainner[j];
       if (col >= ncols_local)
       {
-        // Get remapped ghost column
-        std::int64_t global_col = col_ghosts[col - ncols_local];
+	// Get remapped ghost column
+	std::int64_t global_col = col_ghosts[col - ncols_local];
         auto it = col_ghost_map.find(global_col);
         assert(it != col_ghost_map.end());
         col = it->second;
@@ -343,7 +345,25 @@ Matrix<T>::create_matrix(MPI_Comm comm,
 
       assert(row >= 0 and row < nrows_local);
       assert(col >= 0 and col < (int)(ncols_local + col_ghost_map.size()));
-      mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+      if (symmetric)
+      {
+	// If element is in local column range, insert only if it's on or below
+	// main diagonal
+	if (col < ncols_local) {
+	  std::int64_t global_row = row + row_ranges[mpi_rank];
+	  std::int64_t global_col = col + col_ranges[mpi_rank];
+	  if (global_row > global_col)
+	    mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+	  else if (global_row == global_col)
+	    mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+	} else {
+	  mat_remote_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+	}
+      }
+      else
+      {
+        mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+      }
     }
   }
 
@@ -375,7 +395,24 @@ Matrix<T>::create_matrix(MPI_Comm comm,
         col = global_col - col_ranges[mpi_rank];
       assert(row >= 0 and row < nrows_local);
       assert(col >= 0 and col < (int)(ncols_local + col_ghost_map.size()));
-      mat_data.push_back(Eigen::Triplet<T>(row, col, val));
+
+      if (symmetric)
+      {
+	// If element is in local column range, insert only if it's on or below
+	// main diagonal
+	if (col < ncols_local) {
+	  if (global_row > global_col)
+	    mat_data.push_back(Eigen::Triplet<T>(row, col, val));
+	  else if (global_row == global_col)
+	    mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, val));
+	} else {
+	  mat_remote_data.push_back(Eigen::Triplet<T>(row, col, val));
+	}
+      }
+      else
+      {
+	mat_data.push_back(Eigen::Triplet<T>(row, col, val));
+      }
     }
   }
 
@@ -396,37 +433,26 @@ Matrix<T>::create_matrix(MPI_Comm comm,
         nrows_local, ncols_local + new_col_ghosts.size());
     auto Bdiagonal
         = std::make_shared<Eigen::Matrix<T, Eigen::Dynamic, 1>>(nrows_local);
-    Bdiagonal->setZero();
 
-    for (auto const& elem : mat_data)
+    Blocal->setFromTriplets(mat_data.begin(), mat_data.end());
+    Bremote->setFromTriplets(mat_remote_data.begin(), mat_remote_data.end());
+    Bdiagonal->setZero();
+    T *diag = Bdiagonal->data();
+    std::unordered_set<std::int64_t> unique_rows; 
+    for (auto const& elem : mat_diagonal_data)
     {
-      int row = elem.row();
-      int col = elem.col();
-      std::int64_t global_row = row + row_ranges[mpi_rank];
-      std::int64_t global_col = (col < ncols_local) ? col + col_ranges[mpi_rank]
-                                                    : new_col_ghosts[col];
-      // If element is in local column range, insert only if it's on or below
-      // main diagonal
-      if (col < ncols_local && global_row > global_col)
-        Blocal->insert(row, col) = elem.value();
-      // If element is on main diagonal, store seperately
-      if (col < ncols_local && global_row == global_col)
-        (*Bdiagonal)(row, 1) = elem.value();
-      // If element is out of local column range, always insert
-      if (col >= ncols_local)
-        Bremote->insert(row, col) = elem.value();
+      unique_rows.insert(elem.row());
+      diag[elem.row()] += elem.value();
     }
-    Blocal->makeCompressed();
-    Bremote->makeCompressed();
 
     std::shared_ptr<spmv::L2GMap> col_map
         = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts);
     std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
         comm, nrows_local, std::vector<std::int64_t>());
 
-    spmv::Matrix<T> b(Blocal, Bremote, Bdiagonal, col_map, row_map,
-                      mat.nonZeros());
-    return b;
+    // Number of nonzeros in full matrix
+    std::int64_t nnz = 2*Blocal->nonZeros() + Bremote->nonZeros() + unique_rows.size();
+    return spmv::Matrix<T>(Blocal, Bremote, Bdiagonal, col_map, row_map, nnz);
   }
   else
   {
@@ -439,8 +465,7 @@ Matrix<T>::create_matrix(MPI_Comm comm,
     std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
         comm, nrows_local, std::vector<std::int64_t>());
 
-    spmv::Matrix<T> b(B, col_map, row_map);
-    return b;
+    return spmv::Matrix<T>(B, col_map, row_map);
   }
 }
 

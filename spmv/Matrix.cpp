@@ -59,9 +59,10 @@ static size_t get_num_threads()
 
 //-----------------------------------------------------------------------------
 template <typename T>
-Matrix<T>::Matrix(std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
-                  std::shared_ptr<spmv::L2GMap> col_map,
-                  std::shared_ptr<spmv::L2GMap> row_map)
+Matrix<T>::Matrix(
+    std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
+    std::shared_ptr<spmv::L2GMap> col_map,
+    std::shared_ptr<spmv::L2GMap> row_map)
     : _mat_local(mat), _mat_remote(nullptr), _mat_diagonal(nullptr),
       _col_map(col_map), _row_map(row_map), _nnz(mat->nonZeros()),
       _symmetric(false)
@@ -93,7 +94,11 @@ Matrix<T>::Matrix(
 #endif
 {
 #ifdef EIGEN_USE_MKL_ALL
-  mkl_init();
+  // If matrix is symmetric, roll back to internal implementation
+  if (!_symmetric)
+  {
+    mkl_init();
+  }
 #endif
 #ifdef _OPENMP
   if (_symmetric)
@@ -108,7 +113,10 @@ template <typename T>
 Matrix<T>::~Matrix()
 {
 #ifdef EIGEN_USE_MKL_ALL
-  mkl_sparse_destroy(_mat_mkl);
+  if (!_symmetric)
+  {
+    mkl_sparse_destroy(_mat_mkl);
+  }
 #endif
 #ifdef _OPENMP
   delete _cnfl_map;
@@ -335,8 +343,8 @@ Matrix<T>::create_matrix(MPI_Comm comm,
       int col = Ainner[j];
       if (col >= ncols_local)
       {
-	// Get remapped ghost column
-	std::int64_t global_col = col_ghosts[col - ncols_local];
+        // Get remapped ghost column
+        std::int64_t global_col = col_ghosts[col - ncols_local];
         auto it = col_ghost_map.find(global_col);
         assert(it != col_ghost_map.end());
         col = it->second;
@@ -347,18 +355,21 @@ Matrix<T>::create_matrix(MPI_Comm comm,
       assert(col >= 0 and col < (int)(ncols_local + col_ghost_map.size()));
       if (symmetric)
       {
-	// If element is in local column range, insert only if it's on or below
-	// main diagonal
-	if (col < ncols_local) {
-	  std::int64_t global_row = row + row_ranges[mpi_rank];
-	  std::int64_t global_col = col + col_ranges[mpi_rank];
-	  if (global_row > global_col)
-	    mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
-	  else if (global_row == global_col)
-	    mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
-	} else {
-	  mat_remote_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
-	}
+        // If element is in local column range, insert only if it's on or below
+        // main diagonal
+        if (col < ncols_local)
+        {
+          std::int64_t global_row = row + row_ranges[mpi_rank];
+          std::int64_t global_col = col + col_ranges[mpi_rank];
+          if (global_row > global_col)
+            mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+          else if (global_row == global_col)
+            mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+        }
+        else
+        {
+          mat_remote_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+        }
       }
       else
       {
@@ -398,20 +409,23 @@ Matrix<T>::create_matrix(MPI_Comm comm,
 
       if (symmetric)
       {
-	// If element is in local column range, insert only if it's on or below
-	// main diagonal
-	if (col < ncols_local) {
-	  if (global_row > global_col)
-	    mat_data.push_back(Eigen::Triplet<T>(row, col, val));
-	  else if (global_row == global_col)
-	    mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, val));
-	} else {
-	  mat_remote_data.push_back(Eigen::Triplet<T>(row, col, val));
-	}
+        // If element is in local column range, insert only if it's on or below
+        // main diagonal
+        if (col < ncols_local)
+        {
+          if (global_row > global_col)
+            mat_data.push_back(Eigen::Triplet<T>(row, col, val));
+          else if (global_row == global_col)
+            mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, val));
+        }
+        else
+        {
+          mat_remote_data.push_back(Eigen::Triplet<T>(row, col, val));
+        }
       }
       else
       {
-	mat_data.push_back(Eigen::Triplet<T>(row, col, val));
+        mat_data.push_back(Eigen::Triplet<T>(row, col, val));
       }
     }
   }
@@ -437,8 +451,8 @@ Matrix<T>::create_matrix(MPI_Comm comm,
     Blocal->setFromTriplets(mat_data.begin(), mat_data.end());
     Bremote->setFromTriplets(mat_remote_data.begin(), mat_remote_data.end());
     Bdiagonal->setZero();
-    T *diag = Bdiagonal->data();
-    std::unordered_set<std::int64_t> unique_rows; 
+    T* diag = Bdiagonal->data();
+    std::unordered_set<std::int64_t> unique_rows;
     for (auto const& elem : mat_diagonal_data)
     {
       unique_rows.insert(elem.row());
@@ -451,7 +465,8 @@ Matrix<T>::create_matrix(MPI_Comm comm,
         comm, nrows_local, std::vector<std::int64_t>());
 
     // Number of nonzeros in full matrix
-    std::int64_t nnz = 2*Blocal->nonZeros() + Bremote->nonZeros() + unique_rows.size();
+    std::int64_t nnz
+        = 2 * Blocal->nonZeros() + Bremote->nonZeros() + unique_rows.size();
     return spmv::Matrix<T>(Blocal, Bremote, Bdiagonal, col_map, row_map, nnz);
   }
   else
@@ -767,8 +782,10 @@ void Matrix<double>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_d_create_csr(
       &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
-      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
-      _mat_local->innerIndexPtr(), _mat_local->valuePtr());
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr()),
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr() + 1),
+      const_cast<MKL_INT*>(_mat_local->innerIndexPtr()),
+      const_cast<double*>(_mat_local->valuePtr()));
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -786,8 +803,10 @@ void Matrix<std::complex<double>>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_z_create_csr(
       &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
-      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
-      _mat_local->innerIndexPtr(), (MKL_Complex16*)_mat_local->valuePtr());
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr()),
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr()) + 1,
+      const_cast<MKL_INT*>(_mat_local->innerIndexPtr()),
+      const_cast<MKL_Complex16*>(_mat_local->valuePtr()));
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -805,8 +824,10 @@ void Matrix<float>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_s_create_csr(
       &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
-      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
-      _mat_local->innerIndexPtr(), _mat_local->valuePtr());
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr()),
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr()) + 1,
+      const_cast<MKL_INT*>(_mat_local->innerIndexPtr()),
+      const_cast<float*>(_mat_local->valuePtr()));
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -824,8 +845,10 @@ void Matrix<std::complex<float>>::mkl_init()
 {
   sparse_status_t status = mkl_sparse_c_create_csr(
       &_mat_mkl, SPARSE_INDEX_BASE_ZERO, _mat_local->rows(), _mat_local->cols(),
-      _mat_local->outerIndexPtr(), _mat_local->outerIndexPtr() + 1,
-      _mat_local->innerIndexPtr(), (MKL_Complex8*)_mat_local->valuePtr());
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr()),
+      const_cast<MKL_INT*>(_mat_local->outerIndexPtr()) + 1,
+      const_cast<MKL_INT*>(_mat_local->innerIndexPtr()),
+      const_cast<MKL_Complex8*>(_mat_local->valuePtr()));
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);

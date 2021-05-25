@@ -33,11 +33,12 @@ public:
   /// This constructor just copies in the data from the "local" and "remote"
   /// sub-blocks of a symmetric matrix. To build a Matrix from more
   /// general data, use `Matrix::create_matrix` instead.
-  Matrix(std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
-         std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
-         std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
-         std::shared_ptr<spmv::L2GMap> col_map,
-         std::shared_ptr<spmv::L2GMap> row_map, int nnz_full);
+  Matrix(
+      std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_local,
+      std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
+      std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
+      std::shared_ptr<spmv::L2GMap> col_map,
+      std::shared_ptr<spmv::L2GMap> row_map, int nnz_full);
 
   /// Destructor (destroys MKL structs, if using MKL)
   ~Matrix();

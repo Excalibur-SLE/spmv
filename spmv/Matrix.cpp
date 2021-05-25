@@ -698,7 +698,7 @@ Matrix<T>::spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
   T* y_ptr = y.data();
 
 #ifdef _OPENMP
-  #pragma omp parallel
+#pragma omp parallel
   {
     int tid = omp_get_thread_num();
     int row_offset = _row_split[tid];
@@ -707,7 +707,7 @@ Matrix<T>::spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
     // Compute diagonal
     for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
       y_ptr[i] = diagonal[i] * b_ptr[i];
-    #pragma omp barrier
+#pragma omp barrier
 
     for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
     {
@@ -737,7 +737,7 @@ Matrix<T>::spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 
       y_ptr[i] += y_tmp;
     }
-    #pragma omp barrier
+#pragma omp barrier
 
     // Compute symmetric SpMV on local block - reduction of conflicts phase
     for (int i = _map_start[tid]; i < _map_end[tid]; ++i)
@@ -806,7 +806,7 @@ void Matrix<std::complex<double>>::mkl_init()
       const_cast<MKL_INT*>(_mat_local->outerIndexPtr()),
       const_cast<MKL_INT*>(_mat_local->outerIndexPtr()) + 1,
       const_cast<MKL_INT*>(_mat_local->innerIndexPtr()),
-      const_cast<MKL_Complex16*>(_mat_local->valuePtr()));
+      (MKL_Complex16*)_mat_local->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);
@@ -848,7 +848,7 @@ void Matrix<std::complex<float>>::mkl_init()
       const_cast<MKL_INT*>(_mat_local->outerIndexPtr()),
       const_cast<MKL_INT*>(_mat_local->outerIndexPtr()) + 1,
       const_cast<MKL_INT*>(_mat_local->innerIndexPtr()),
-      const_cast<MKL_Complex8*>(_mat_local->valuePtr()));
+      (MKL_Complex8*)_mat_local->valuePtr());
   assert(status == SPARSE_STATUS_SUCCESS);
 
   status = mkl_sparse_optimize(_mat_mkl);

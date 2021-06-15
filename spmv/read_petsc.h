@@ -19,8 +19,10 @@ class L2GMap;
 /// Create a suitable file with petsc option "-ksp_view_mat binary"
 /// @param comm MPI Comm
 /// @param filename Filename
+/// @param symmetric Indicates whether the matrix is symmetric
 /// @return spmv::Matrix<double> Matrix
-Matrix<double> read_petsc_binary(MPI_Comm comm, std::string filename);
+Matrix<double> read_petsc_binary(MPI_Comm comm, std::string filename,
+                                 bool symmetric = false);
 
 /// @brief Read a binary PETSc vector file and distribute.
 ///

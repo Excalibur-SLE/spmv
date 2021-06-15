@@ -28,7 +28,7 @@ void restrict_main()
   auto q = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, "b4.dat");
 
   // Get local and global sizes
-  std::int64_t M = R.mat().rows();
+  std::int64_t M = R.rows();
   auto l2g = R.col_map();
   std::int64_t N = l2g->global_size();
 
@@ -121,7 +121,18 @@ void restrict_main()
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
+#ifdef _OPENMP
+  int provided;
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+  if (provided < MPI_THREAD_FUNNELED)
+  {
+    std::cout << "The threading support level is lesser than required"
+              << std::endl;
+    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+  }
+#else
   MPI_Init(&argc, &argv);
+#endif
 
   restrict_main();
 

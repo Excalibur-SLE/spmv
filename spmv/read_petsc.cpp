@@ -29,8 +29,10 @@ std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
   return ranges;
 }
 //-----------------------------------------------------------------------------
-spmv::Matrix<double>
-spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
+spmv::Matrix<double> spmv::read_petsc_binary(MPI_Comm comm,
+                                             std::string filename,
+                                             bool symmetric, bool p2p,
+                                             bool overlap)
 {
   auto A = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
   auto A_remote
@@ -147,7 +149,7 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
     }
 
   A->resize(nrows_local, col_indices.size());
-  if (symmetric)
+  if (symmetric || overlap)
     A_remote->resize(nrows_local, col_indices.size());
 
   // Read values
@@ -190,14 +192,26 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
       }
       else
       {
-        A->insert(global_row - row_ranges[mpi_rank], col) = val;
+        if (overlap)
+        {
+          // If element is in local column range, insert in "local" block
+          if (col < ncols_local)
+            A->insert(global_row - row_ranges[mpi_rank], col) = val;
+          // Otherwise, store in "remote" block
+          else
+            A_remote->insert(global_row - row_ranges[mpi_rank], col) = val;
+        }
+        else
+        {
+          A->insert(global_row - row_ranges[mpi_rank], col) = val;
+        }
       }
       ptr += 4;
     }
   }
 
   A->makeCompressed();
-  if (symmetric)
+  if (symmetric || overlap)
     A_remote->makeCompressed();
 
   std::vector<std::int64_t> ghosts(col_indices.size() - ncols_local);
@@ -205,12 +219,16 @@ spmv::read_petsc_binary(MPI_Comm comm, std::string filename, bool symmetric)
     if (q.first < col_ranges[mpi_rank] or q.first >= col_ranges[mpi_rank + 1])
       ghosts[q.second - ncols_local] = q.first;
 
-  auto col_map = std::make_shared<spmv::L2GMap>(comm, ncols_local, ghosts);
+  auto col_map
+      = std::make_shared<spmv::L2GMap>(comm, ncols_local, ghosts, p2p, overlap);
   auto row_map = std::make_shared<spmv::L2GMap>(comm, nrows_local,
                                                 std::vector<std::int64_t>());
+
   if (symmetric)
     return spmv::Matrix<double>(A, A_remote, A_diagonal, col_map, row_map,
-                                nnz_tot);
+                                nnz_tot, overlap);
+  else if (overlap)
+    return spmv::Matrix<double>(A, A_remote, col_map, row_map);
   else
     return spmv::Matrix<double>(A, col_map, row_map);
 }

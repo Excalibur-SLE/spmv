@@ -25,9 +25,23 @@ public:
   /// @param comm MPI Comm
   /// @param local_size Local size
   /// @param ghosts Ghost indices, owned by other processes.
+  /// @param p2p Use point-to-point communication.
+  /// @param overlap Overlap communication with computation.
   /// Ghosts must be sorted in ascending order.
   L2GMap(MPI_Comm comm, std::int64_t local_size,
-         const std::vector<std::int64_t>& ghosts);
+         const std::vector<std::int64_t>& ghosts, bool p2p, bool overlap);
+
+  /// L2GMap (Local to Global Map)
+  /// ----------------------------
+  /// @param comm MPI Comm
+  /// @param local_size Local size
+  /// @param ghosts Ghost indices, owned by other processes.
+  /// Ghosts must be sorted in ascending order.
+  L2GMap(MPI_Comm comm, std::int64_t local_size,
+         const std::vector<std::int64_t>& ghosts)
+      : L2GMap(comm, local_size, ghosts, false, false)
+  {
+  }
 
   // Destructor destroys neighbour comm
   ~L2GMap();
@@ -57,12 +71,20 @@ public:
   /// @return Local index
   std::int32_t global_to_local(std::int64_t i) const;
 
+  /// Overlapping
+  /// @return A flag indicating whether comp/comm ovelap is enabled
+  bool overlapping() const { return _overlap; }
+
   /// Ghost update. Copies values from remote indices to the local process.
   /// This should be applied to a vector *before* a MatVec operation, if the
   /// Matrix has column ghosts.
   /// @param vec_data Pointer to vector data
   template <typename T>
   void update(T* vec_data) const;
+  /// Ghost update finalisation. Completes MPI communication. This should be
+  /// called when ovelapping is enabled.
+  template <typename T>
+  void update_finalise(T* vec_data) const;
 
   /// Reverse update. Sends ghost values to their owners, where they are
   /// accumulated at the local index. This should be applied to the result
@@ -93,7 +115,40 @@ private:
   std::vector<std::int32_t> _send_offset;
   std::vector<std::int32_t> _recv_offset;
 
+  // Ranks of my neighbours
+  std::vector<int> _neighbours;
+  // Global communicator
+  MPI_Comm _comm;
+  // Neighbourhood communicator
   MPI_Comm _neighbour_comm;
+  // Flag to indicate whether point-to-point communication is used
+  bool _p2p;
+  // Flag to indicate whether overlapping of communication with computation is
+  // used
+  bool _overlap;
+  // MPI handle and intermediate buffers used to manage non-blocking
+  // communication
+  mutable MPI_Request* _req;
+  mutable void *_send_buf, *_recv_buf;
+
+private:
+  // Private functions
+  template <typename T>
+  void update_collective(T* vec_data) const;
+  template <typename T>
+  void update_collective_start(T* vec_data) const;
+  template <typename T>
+  void update_collective_end(T* vec_data) const;
+  template <typename T>
+  void update_p2p(T* vec_data) const;
+  template <typename T>
+  void update_p2p_start(T* vec_data) const;
+  template <typename T>
+  void update_p2p_end(T* vec_data) const;
+  template <typename T>
+  void reverse_update_collective(T* vec_data) const;
+  template <typename T>
+  void reverse_update_p2p(T* vec_data) const;
 };
 
 } // namespace spmv

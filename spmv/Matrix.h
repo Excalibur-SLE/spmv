@@ -79,6 +79,17 @@ public:
                 std::vector<std::int64_t> row_ghosts,
                 std::vector<std::int64_t> col_ghosts, bool symmetric = false);
 
+  /// Create an `spmv::Matrix` from a CSR matrix and row and column
+  /// mappings, such that the resulting matrix has no row ghosts, but only
+  /// column ghosts. This is achieved by sending ghost rows to their owners,
+  /// where they are summed into existing rows. The column ghost mapping will
+  /// also change in this process.
+  static Matrix<T>
+  create_matrix(MPI_Comm comm, std::int32_t* rowptr, std::int32_t* colind,
+                T* values, std::int64_t nrows_local, std::int64_t ncols_local,
+                std::vector<std::int64_t> row_ghosts,
+                std::vector<std::int64_t> col_ghosts, bool symmetric = false);
+
 private:
   // Storage for matrix
   std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_local;

@@ -18,6 +18,8 @@ set(CMAKE_SKIP_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 
 find_package(MPI REQUIRED)
+find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+include_directories(${EIGEN3_INCLUDE_DIR} ${MPI_INCLUDE_PATH})
 
 option(USE_OPENMP "Use OpenMP for shared-memory parallelization" OFF)
 if(USE_OPENMP)
@@ -39,9 +41,6 @@ find_package(BLAS)
 if(BLAS_FOUND)
     include_directories("/usr/include/mkl")
 endif()
-
-find_package(Eigen3 REQUIRED)
-include_directories(${EIGEN3_INCLUDE_DIR} ${MPI_INCLUDE_PATH})
 
 # Not sure why need to set -O3 and -DNDEBUG as should be set by Release build type
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=all -g -O3 -DNDEBUG -DEIGEN_MAX_ALIGN_BYTES=32")

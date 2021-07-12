@@ -4,7 +4,7 @@ add_library(${PROJECT_NAME} SHARED L2GMap.cpp Matrix.cpp read_petsc.cpp cg.cpp)
 target_include_directories (${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories (${PROJECT_NAME} INTERFACE $<INSTALL_INTERFACE:include>)
 # Target libraries
-target_link_libraries(${PROJECT_NAME} PUBLIC ${MPI_LIBRARIES} ${OpenMP_CXX_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} PUBLIC ${MPI_LIBRARIES} Eigen3::Eigen ${OpenMP_CXX_LIBRARIES})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "spmv.h")
 set_target_properties(${PROJECT_NAME} PROPERTIES PRIVATE_HEADER "L2GMap.h;Matrix.h;read_petsc.h;cg.h")

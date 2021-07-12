@@ -104,11 +104,14 @@ public:
   /// column ghosts. This is achieved by sending ghost rows to their owners,
   /// where they are summed into existing rows. The column ghost mapping will
   /// also change in this process.
-  static Matrix<T>
-  create_matrix(MPI_Comm comm, std::int32_t* rowptr, std::int32_t* colind,
-                T* values, std::int64_t nrows_local, std::int64_t ncols_local,
-                std::vector<std::int64_t> row_ghosts,
-                std::vector<std::int64_t> col_ghosts, bool symmetric = false);
+  static Matrix<T> create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
+                                 const std::int32_t* colind, const T* values,
+                                 std::int64_t nrows_local,
+                                 std::int64_t ncols_local,
+                                 std::vector<std::int64_t> row_ghosts,
+                                 std::vector<std::int64_t> col_ghosts,
+                                 bool symmetric = false, bool p2p = false,
+                                 bool overlap = false);
 
 private:
   // Storage for matrix

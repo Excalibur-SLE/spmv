@@ -36,6 +36,15 @@ if(USE_OPENMP)
     endif()
 endif()
 
+option(USE_SYCL "Use SYCL for shared-memory parallelization" OFF)
+if(USE_SYCL)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_SYCL")
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl-targets=spir64_x86_64-unknown-unknown-sycldevice")
+  endif()
+endif()
+
 set(BLA_VENDOR Intel10_64lp)
 find_package(BLAS)
 if(BLAS_FOUND)
@@ -44,6 +53,8 @@ endif()
 
 # Not sure why need to set -O3 and -DNDEBUG as should be set by Release build type
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=all -g -O3 -DNDEBUG -DEIGEN_MAX_ALIGN_BYTES=32")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wnull-dereference")
+# GCC-specific  -Wsuggest-attribute=const -flto
 
 add_subdirectory(spmv)
 include_directories (${CMAKE_CURRENT_SOURCE_DIR})

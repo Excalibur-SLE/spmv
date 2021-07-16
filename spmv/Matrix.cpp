@@ -10,7 +10,7 @@
 
 using namespace spmv;
 
-#ifdef _OPENMP
+#if defined(_OPENMP) || defined(_SYCL)
 //-----------------------------------------------------------------------------
 static void** calloc_2d(size_t dim1, size_t dim2, size_t size)
 {
@@ -41,9 +41,14 @@ static void free_2d(void** array)
   free(array);
 }
 //---------------------
+// FIXME SYCL
 static size_t get_num_threads()
 {
+#ifdef _OPENMP
   const char* threads_env = getenv("OMP_NUM_THREADS");
+#else // _SYCL
+  const char* threads_env = getenv("DPCPP_CPU_NUM_CUS");
+#endif
   int ret = 1;
 
   if (threads_env)
@@ -56,7 +61,7 @@ static size_t get_num_threads()
   return ret;
 }
 //-----------------------------------------------------------------------------
-#endif // _OPENMP
+#endif // _OPENMP || _SYCL
 
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -66,8 +71,8 @@ Matrix<T>::Matrix(
     std::shared_ptr<spmv::L2GMap> row_map)
     : _mat_local(mat), _mat_remote(nullptr), _mat_diagonal(nullptr),
       _col_map(col_map), _row_map(row_map), _nnz(mat->nonZeros()),
-      _symmetric(false)
-#ifdef _OPENMP
+      _symmetric(false), _overlap(false)
+#if defined(_OPENMP) || defined(_SYCL)
       ,
       _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
       _map_start(nullptr), _map_end(nullptr), _y_local(nullptr)
@@ -79,6 +84,18 @@ Matrix<T>::Matrix(
 #ifdef EIGEN_USE_MKL_ALL
   mkl_init();
 #endif // _EIGEN_USE_MKL_ALL
+
+#ifdef _SYCL
+  // Initialise SYCL buffers, ownership is passed to SYCL runtime
+  // auto property_list
+  //     = cl::sycl::property_list{cl::sycl::property::buffer::use_host_ptr()};
+  _d_rowptr_local = new sycl::buffer<int>(
+      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1));
+  _d_colind_local = new sycl::buffer<int>(
+      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()));
+  _d_values_local = new sycl::buffer<T>(_mat_local->valuePtr(),
+                                        sycl::range<1>(_mat_local->nonZeros()));
+#endif // _SYCL
 }
 //---------------------
 template <typename T>
@@ -89,8 +106,9 @@ Matrix<T>::Matrix(
     std::shared_ptr<spmv::L2GMap> row_map)
     : _mat_local(mat_local), _mat_remote(mat_remote), _mat_diagonal(nullptr),
       _col_map(col_map), _row_map(row_map),
-      _nnz(mat_local->nonZeros() + mat_remote->nonZeros()), _symmetric(false)
-#ifdef _OPENMP
+      _nnz(mat_local->nonZeros() + mat_remote->nonZeros()), _symmetric(false),
+      _overlap(true)
+#if defined(_OPENMP) || defined(_SYCL)
       ,
       _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
       _map_start(nullptr), _map_end(nullptr), _y_local(nullptr)
@@ -103,6 +121,31 @@ Matrix<T>::Matrix(
 #ifdef EIGEN_USE_MKL_ALL
   mkl_init();
 #endif // _EIGEN_USE_MKL_ALL
+
+#ifdef _SYCL
+  // Initialise SYCL buffers, ownership is passed to SYCL runtime
+  _d_rowptr_local = new sycl::buffer<int>(
+      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1));
+  _d_colind_local = new sycl::buffer<int>(
+      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()));
+  _d_values_local = new sycl::buffer<T>(_mat_local->valuePtr(),
+                                        sycl::range<1>(_mat_local->nonZeros()));
+  if (_mat_remote->nonZeros() > 0)
+  {
+    _d_rowptr_remote = new sycl::buffer<int>(
+        _mat_remote->outerIndexPtr(), sycl::range<1>(_mat_remote->rows() + 1));
+    _d_colind_remote = new sycl::buffer<int>(
+        _mat_remote->innerIndexPtr(), sycl::range<1>(_mat_remote->nonZeros()));
+    _d_values_remote = new sycl::buffer<T>(
+        _mat_remote->valuePtr(), sycl::range<1>(_mat_remote->nonZeros()));
+  }
+  else
+  {
+    _d_rowptr_remote = nullptr;
+    _d_colind_remote = nullptr;
+    _d_values_remote = nullptr;
+  }
+#endif // _SYCL
 }
 //---------------------
 template <typename T>
@@ -114,22 +157,81 @@ Matrix<T>::Matrix(
     std::shared_ptr<spmv::L2GMap> row_map, int nnz_full)
     : _mat_local(mat_local), _mat_remote(mat_remote),
       _mat_diagonal(mat_diagonal), _col_map(col_map), _row_map(row_map),
-      _nnz(nnz_full), _symmetric(true)
-#ifdef _OPENMP
+      _nnz(nnz_full), _symmetric(true), _overlap(overlap)
+#if defined(_OPENMP) || defined(_SYCL)
       ,
       _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
       _map_start(nullptr), _map_end(nullptr), _y_local(nullptr)
 #endif // _OPENMP
 {
-#ifdef _OPENMP
+#if defined(_OPENMP) || defined(_SYCL)
   _nthreads = get_num_threads();
   tune(_nthreads);
 #endif // _OPENMP
+
+#ifdef _SYCL
+  // Initialise SYCL buffers, ownership is passed to SYCL runtime
+  _d_rowptr_local = new sycl::buffer<int>(
+      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1));
+  _d_colind_local = new sycl::buffer<int>(
+      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()));
+  _d_values_local = new sycl::buffer<T>(_mat_local->valuePtr(),
+                                        sycl::range<1>(_mat_local->nonZeros()));
+  if (_mat_remote->nonZeros() > 0)
+  {
+    _d_rowptr_remote = new sycl::buffer<int>(
+        _mat_remote->outerIndexPtr(), sycl::range<1>(_mat_remote->rows() + 1));
+    _d_colind_remote = new sycl::buffer<int>(
+        _mat_remote->innerIndexPtr(), sycl::range<1>(_mat_remote->nonZeros()));
+    _d_values_remote = new sycl::buffer<T>(
+        _mat_remote->valuePtr(), sycl::range<1>(_mat_remote->nonZeros()));
+  }
+  else
+  {
+    _d_rowptr_remote = nullptr;
+    _d_colind_remote = nullptr;
+    _d_values_remote = nullptr;
+  }
+  _d_diagonal = new sycl::buffer<T>(_mat_diagonal->data(),
+                                    sycl::range<1>(_mat_local->rows()));
+  _d_row_split
+      = new sycl::buffer<int>(_row_split, sycl::range<1>(_nthreads + 1));
+  _d_map_start = new sycl::buffer<int>(
+      _map_start, sycl::range<1>{static_cast<size_t>(_nthreads)});
+  _d_map_end = new sycl::buffer<int>(
+      _map_end, sycl::range<1>{static_cast<size_t>(_nthreads)});
+  _d_cnfl_vid = new sycl::buffer<short>(
+      _cnfl_map->vid, sycl::range<1>{static_cast<size_t>(_ncnfls)});
+  _d_cnfl_pos = new sycl::buffer<int>(
+      _cnfl_map->pos, sycl::range<1>{static_cast<size_t>(_ncnfls)});
+  _d_y_local = new sycl::buffer<T, 2>(
+      &_y_local[0][0], sycl::range<2>{static_cast<size_t>(_nthreads),
+                                      static_cast<size_t>(_mat_local->rows())});
+#endif // _SYCL
 }
 //---------------------
 template <typename T>
 Matrix<T>::~Matrix()
 {
+#ifdef _SYCL
+  // SYCL buffers to return ownership of data
+  delete _d_rowptr_local;
+  delete _d_colind_local;
+  delete _d_values_local;
+  delete _d_rowptr_remote;
+  delete _d_colind_remote;
+  delete _d_values_remote;
+  if (_symmetric) {
+    delete _d_row_split;
+    delete _d_diagonal;
+    delete _d_map_start;
+    delete _d_map_end;
+    delete _d_cnfl_vid;
+    delete _d_cnfl_pos;
+    delete _d_y_local;
+  }
+#endif // _SYCL
+
 #ifdef EIGEN_USE_MKL_ALL
   if (!_symmetric)
   {
@@ -138,7 +240,8 @@ Matrix<T>::~Matrix()
   if (_col_map->overlapping())
     mkl_sparse_destroy(_mat_remote_mkl);
 #endif // _EIGEN_USE_MKL_ALL
-#ifdef _OPENMP
+
+#if defined(_OPENMP) || defined(_SYCL)
   if (_symmetric)
   {
     delete _cnfl_map;
@@ -147,7 +250,7 @@ Matrix<T>::~Matrix()
     delete[] _map_end;
     free_2d((void**)_y_local);
   }
-#endif // _OPENMP
+#endif // _OPENMP || _SYCL
 }
 //---------------------
 template <typename T>
@@ -566,7 +669,7 @@ Matrix<T> Matrix<T>::create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
 }
 
 //-----------------------------------------------------------------------------
-#ifdef _OPENMP
+#if defined(_OPENMP) || defined(_SYCL)
 template <typename T>
 void Matrix<T>::partition_by_nrows(const int nthreads)
 {
@@ -678,7 +781,11 @@ void Matrix<T>::tune(const int nthreads)
     // Allocate buffers for "local vectors indexing" method
     // The first thread writes directly to the output vector, so doesn't need a
     // buffer
+#ifdef _OPENMP
     _y_local = (T**)calloc_2d(nthreads - 1, _mat_local->rows(), sizeof(T));
+#else  // _SYCL
+    _y_local = (T**)calloc_2d(nthreads, _mat_local->rows(), sizeof(T));
+#endif // _SYCL
 
     // Build conflict map for local block
     std::map<int, std::unordered_set<int>> row_conflicts;
@@ -686,7 +793,11 @@ void Matrix<T>::tune(const int nthreads)
     int ncnfls = 0;
     const int* rowptr = _mat_local->outerIndexPtr();
     const int* colind = _mat_local->innerIndexPtr();
-    for (int tid = 1; tid < nthreads; ++tid)
+#ifdef _OPENMP
+    for (int tid = 0; tid < nthreads; ++tid)
+#else // _SYCL
+    for (int tid = 0; tid < nthreads; ++tid)
+#endif
     {
       for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
       {
@@ -712,7 +823,7 @@ void Matrix<T>::tune(const int nthreads)
       for (auto tid : conflict.second)
       {
         _cnfl_map->pos[cnt] = conflict.first;
-        _cnfl_map->tid[cnt] = tid;
+        _cnfl_map->vid[cnt] = tid;
         cnt++;
       }
     }
@@ -759,9 +870,178 @@ void Matrix<T>::tune(const int nthreads)
       _map_end[tid] += start;
       start = _map_end[tid];
     }
+
+    _ncnfls = ncnfls;
   }
 }
 #endif // _OPENMP
+//---------------------
+#ifdef _SYCL
+template <typename T>
+sycl::event Matrix<T>::spmv_sycl(sycl::queue& q, T* __restrict__ b,
+                                 T* __restrict__ y) const
+{
+#ifdef _MKL
+#else
+  namespace acc = sycl::access;
+  sycl::event event = q.submit([&](sycl::handler& h) {
+    const size_t nrows = _mat_local->rows();
+    auto rowptr = _d_rowptr_local->template get_access<acc::mode::read>(h);
+    auto colind = _d_colind_local->template get_access<acc::mode::read>(h);
+    auto values = _d_values_local->template get_access<acc::mode::read>(h);
+
+    h.parallel_for<class spmv>(sycl::range<1>{nrows}, [=](sycl::id<1> it) {
+      const int i = it[0];
+      T y_tmp = 0;
+
+      for (int j = rowptr[i]; j < rowptr[i + 1]; ++j)
+      {
+        y_tmp += values[j] * b[colind[j]];
+      }
+
+      y[i] = y_tmp;
+    });
+  });
+  return event;
+#endif
+}
+//---------------------
+template <typename T>
+sycl::event Matrix<T>::spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
+                                     T* __restrict__ y) const
+{
+  namespace acc = sycl::access;
+
+  // Compute diagonal contribution
+  q.submit([&](sycl::handler& h) {
+    const size_t nrows = _mat_local->rows();
+    auto diagonal = _d_diagonal->template get_access<acc::mode::read>(h);
+
+    h.parallel_for<class sym_diagonal>(sycl::range<1>{nrows},
+                                       [=](sycl::id<1> it) {
+                                         const int i = it[0];
+                                         y[i] = diagonal[i] * b[i];
+                                       });
+  });
+  q.wait();
+
+  // Compute symmetric SpMV on local block - local vectors phase
+  if (_mat_remote->nonZeros() > 0)
+  {
+    q.submit([&](sycl::handler& h) {
+      // accessor acc { myBuffer, cgh, write_only };
+      auto row_split = _d_row_split->template get_access<acc::mode::read>(h);
+      auto rowptr = _d_rowptr_local->template get_access<acc::mode::read>(h);
+      auto colind = _d_colind_local->template get_access<acc::mode::read>(h);
+      auto values = _d_values_local->template get_access<acc::mode::read>(h);
+      auto rowptr_rmt
+          = _d_rowptr_remote->template get_access<acc::mode::read>(h);
+      auto colind_rmt
+          = _d_colind_remote->template get_access<acc::mode::read>(h);
+      auto values_rmt
+          = _d_values_remote->template get_access<acc::mode::read>(h);
+      // no_init writoe only property
+      auto y_local = _d_y_local->template get_access<acc::mode::read_write>(h);
+
+      h.parallel_for<class sym_lower>(
+          sycl::range<1>{_nthreads}, [=](sycl::id<1> it) {
+            const int tid = it[0];
+            const int row_offset = row_split[tid];
+            for (int i = row_split[tid]; i < row_split[tid + 1]; ++i)
+            {
+              T y_tmp = 0;
+
+              // Compute symmetric SpMV on local block - local vectors phase
+              for (int j = rowptr[i]; j < rowptr[i + 1]; ++j)
+              {
+                int col = colind[j];
+                T val = values[j];
+                y_tmp += val * b[col];
+                if (col < row_offset)
+                {
+                  y_local[tid][col] += val * b[i];
+                }
+                else
+                {
+                  y[col] += val * b[i];
+                }
+              }
+
+              // Compute vanilla SpMV on remote block
+              for (int j = rowptr_rmt[i]; j < rowptr_rmt[i + 1]; ++j)
+              {
+                y_tmp += values_rmt[j] * b[colind_rmt[j]];
+              }
+
+              y[i] += y_tmp;
+            }
+          });
+    });
+  }
+  else
+  {
+    q.submit([&](sycl::handler& h) {
+      auto row_split = _d_row_split->template get_access<acc::mode::read>(h);
+      auto rowptr = _d_rowptr_local->template get_access<acc::mode::read>(h);
+      auto colind = _d_colind_local->template get_access<acc::mode::read>(h);
+      auto values = _d_values_local->template get_access<acc::mode::read>(h);
+      // no_init writoe only property
+      auto y_local = _d_y_local->template get_access<acc::mode::read_write>(h);
+
+      h.parallel_for<class sym_lower>(
+          sycl::range<1>{_nthreads}, [=](sycl::id<1> it) {
+            const int tid = it[0];
+            const int row_offset = row_split[tid];
+            for (int i = row_split[tid]; i < row_split[tid + 1]; ++i)
+            {
+              T y_tmp = 0;
+
+              // Compute symmetric SpMV on local block - local vectors phase
+              for (int j = rowptr[i]; j < rowptr[i + 1]; ++j)
+              {
+                int col = colind[j];
+                T val = values[j];
+                y_tmp += val * b[col];
+                if (col < row_offset)
+                {
+                  y_local[tid][col] += val * b[i];
+                }
+                else
+                {
+                  y[col] += val * b[i];
+                }
+              }
+
+              y[i] += y_tmp;
+            }
+          });
+    });
+  }
+  q.wait();
+
+  // Reduction of local vectors phase
+  sycl::event event = q.submit([&](sycl::handler& h) {
+    auto map_start = _d_map_start->template get_access<acc::mode::read>(h);
+    auto map_end = _d_map_end->template get_access<acc::mode::read>(h);
+    auto cnfl_vid = _d_cnfl_vid->template get_access<acc::mode::read>(h);
+    auto cnfl_pos = _d_cnfl_pos->template get_access<acc::mode::read>(h);
+    auto y_local = _d_y_local->template get_access<acc::mode::read_write>(h);
+
+    h.parallel_for<class sym_reduction>(
+        sycl::range<1>{_nthreads}, [=](sycl::id<1> it) {
+          const int tid = it[0];
+          for (int i = map_start[tid]; i < map_end[tid]; ++i)
+          {
+            int vid = cnfl_vid[i];
+            int pos = cnfl_pos[i];
+            y[pos] += y_local[vid][pos];
+            y_local[vid][pos] = 0.0;
+          }
+        });
+  });
+  return event;
+}
+#endif // _SYCL
 //---------------------
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -869,10 +1149,10 @@ Matrix<T>::spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
     // Compute symmetric SpMV on local block - reduction of conflicts phase
     for (int i = _map_start[tid]; i < _map_end[tid]; ++i)
     {
-      int tid = _cnfl_map->tid[i];
+      int vid = _cnfl_map->vid[i];
       int pos = _cnfl_map->pos[i];
-      y_ptr[pos] += _y_local[tid - 1][pos];
-      _y_local[tid - 1][pos] = 0.0;
+      y_ptr[pos] += _y_local[vid - 1][pos];
+      _y_local[vid - 1][pos] = 0.0;
     }
   }
 #else
@@ -972,10 +1252,10 @@ Eigen::Matrix<T, Eigen::Dynamic, 1>
     // Compute symmetric SpMV on local block - reduction of conflicts phase
     for (int i = _map_start[tid]; i < _map_end[tid]; ++i)
     {
-      int tid = _cnfl_map->tid[i];
+      int vid = _cnfl_map->vid[i];
       int pos = _cnfl_map->pos[i];
-      y_ptr[pos] += _y_local[tid - 1][pos];
-      _y_local[tid - 1][pos] = 0.0;
+      y_ptr[pos] += _y_local[vid - 1][pos];
+      _y_local[vid - 1][pos] = 0.0;
     }
   }
 #else

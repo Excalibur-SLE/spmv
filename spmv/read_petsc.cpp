@@ -39,9 +39,9 @@ spmv::Matrix<double> spmv::read_petsc_binary(MPI_Comm comm,
       = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
 
   int mpi_rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  MPI_Comm_rank(comm, &mpi_rank);
   int mpi_size;
-  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+  MPI_Comm_size(comm, &mpi_size);
 
   std::map<std::int32_t, std::int32_t> col_indices;
   std::vector<std::int64_t> row_ranges, col_ranges;
@@ -241,9 +241,9 @@ Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,
   Eigen::VectorXd vec;
 
   int mpi_rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  MPI_Comm_rank(comm, &mpi_rank);
   int mpi_size;
-  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+  MPI_Comm_size(comm, &mpi_size);
 
   std::ifstream file(filename.c_str(),
                      std::ios::in | std::ios::binary | std::ios::ate);

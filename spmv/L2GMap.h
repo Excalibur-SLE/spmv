@@ -1,6 +1,7 @@
 // Copyright (C) 2020 Chris Richardson (chris@bpi.cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "mpi_types.h"
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <mpi.h>
@@ -29,19 +30,8 @@ public:
   /// @param overlap Overlap communication with computation.
   /// Ghosts must be sorted in ascending order.
   L2GMap(MPI_Comm comm, std::int64_t local_size,
-         const std::vector<std::int64_t>& ghosts, bool p2p, bool overlap);
-
-  /// L2GMap (Local to Global Map)
-  /// ----------------------------
-  /// @param comm MPI Comm
-  /// @param local_size Local size
-  /// @param ghosts Ghost indices, owned by other processes.
-  /// Ghosts must be sorted in ascending order.
-  L2GMap(MPI_Comm comm, std::int64_t local_size,
-         const std::vector<std::int64_t>& ghosts)
-      : L2GMap(comm, local_size, ghosts, false, false)
-  {
-  }
+         const std::vector<std::int64_t>& ghosts,
+         CommunicationModel cm = CommunicationModel::collective_blocking);
 
   // Destructor destroys neighbour comm
   ~L2GMap();
@@ -73,7 +63,7 @@ public:
 
   /// Overlapping
   /// @return A flag indicating whether comp/comm ovelap is enabled
-  bool overlapping() const { return _overlap; }
+  bool overlapping() const;
 
   /// Ghost update. Copies values from remote indices to the local process.
   /// This should be applied to a vector *before* a MatVec operation, if the
@@ -114,6 +104,7 @@ private:
   std::vector<std::int32_t> _recv_count;
   std::vector<std::int32_t> _send_offset;
   std::vector<std::int32_t> _recv_offset;
+  std::vector<std::int32_t> _recv_win_offset;
 
   // Ranks of my neighbours
   std::vector<int> _neighbours;
@@ -121,11 +112,8 @@ private:
   MPI_Comm _comm;
   // Neighbourhood communicator
   MPI_Comm _neighbour_comm;
-  // Flag to indicate whether point-to-point communication is used
-  bool _p2p;
-  // Flag to indicate whether overlapping of communication with computation is
-  // used
-  bool _overlap;
+  // Underlying MPI comunnication model
+  CommunicationModel _cm;
   // MPI handle and intermediate buffers used to manage non-blocking
   // communication
   mutable MPI_Request* _req;
@@ -145,6 +133,10 @@ private:
   void update_p2p_start(T* vec_data) const;
   template <typename T>
   void update_p2p_end(T* vec_data) const;
+  template <typename T>
+  void update_onesided_put_active(T* vec_data) const;
+  template <typename T>
+  void update_onesided_put_passive(T* vec_data) const;
   template <typename T>
   void reverse_update_collective(T* vec_data) const;
   template <typename T>

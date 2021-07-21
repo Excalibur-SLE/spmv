@@ -2,16 +2,16 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "mpi_types.h"
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <memory>
+#include <mpi.h>
 #include <vector>
 
 #ifdef EIGEN_USE_MKL_ALL
 #include <mkl.h>
 #endif
-
-#include <mpi.h>
 
 #pragma once
 
@@ -49,7 +49,7 @@ public:
       std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
       std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
       std::shared_ptr<spmv::L2GMap> col_map,
-      std::shared_ptr<spmv::L2GMap> row_map, int nnz_full, bool overlap);
+      std::shared_ptr<spmv::L2GMap> row_map, int nnz_full);
 
   /// Destructor
   ~Matrix();
@@ -59,15 +59,7 @@ public:
   /// Number of columns in the matrix
   int cols() const { return _mat_local->cols(); }
   /// Number of non-zeros in the matrix
-  int non_zeros() const
-  {
-    if (_symmetric)
-      return _nnz;
-    else if (_overlap)
-      return _mat_local->nonZeros() + _mat_remote->nonZeros();
-    else
-      return _mat_local->nonZeros();
-  }
+  int non_zeros() const;
 
   /// The size of the matrix encoding in bytes
   size_t format_size() const;
@@ -91,27 +83,24 @@ public:
   /// column ghosts. This is achieved by sending ghost rows to their owners,
   /// where they are summed into existing rows. The column ghost mapping will
   /// also change in this process.
-  static Matrix<T>
-  create_matrix(MPI_Comm comm,
-                const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
-                std::int64_t nrows_local, std::int64_t ncols_local,
-                std::vector<std::int64_t> row_ghosts,
-                std::vector<std::int64_t> col_ghosts, bool symmetric = false,
-                bool p2p = false, bool overlap = false);
+  static Matrix<T> create_matrix(
+      MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
+      std::int64_t nrows_local, std::int64_t ncols_local,
+      std::vector<std::int64_t> row_ghosts,
+      std::vector<std::int64_t> col_ghosts, bool symmetric = false,
+      CommunicationModel cm = CommunicationModel::collective_nonblocking);
 
   /// Create an `spmv::Matrix` from a CSR matrix and row and column
   /// mappings, such that the resulting matrix has no row ghosts, but only
   /// column ghosts. This is achieved by sending ghost rows to their owners,
   /// where they are summed into existing rows. The column ghost mapping will
   /// also change in this process.
-  static Matrix<T> create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
-                                 const std::int32_t* colind, const T* values,
-                                 std::int64_t nrows_local,
-                                 std::int64_t ncols_local,
-                                 std::vector<std::int64_t> row_ghosts,
-                                 std::vector<std::int64_t> col_ghosts,
-                                 bool symmetric = false, bool p2p = false,
-                                 bool overlap = false);
+  static Matrix<T> create_matrix(
+      MPI_Comm comm, const std::int32_t* rowptr, const std::int32_t* colind,
+      const T* values, std::int64_t nrows_local, std::int64_t ncols_local,
+      std::vector<std::int64_t> row_ghosts,
+      std::vector<std::int64_t> col_ghosts, bool symmetric = false,
+      CommunicationModel cm = CommunicationModel::collective_nonblocking);
 
 private:
   // Storage for matrix
@@ -132,8 +121,6 @@ private:
   // Auxiliary data
   int _nnz;
   bool _symmetric;
-  // Flag to indicate whether to overlap ghosts update phase with computation
-  bool _overlap;
 
 #ifdef _OPENMP
   struct ConflictMap

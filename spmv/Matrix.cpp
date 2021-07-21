@@ -3,7 +3,7 @@
 
 #include "Matrix.h"
 #include "L2GMap.h"
-#include "mpi_type.h"
+#include "mpi_types.h"
 #include <numeric>
 #include <set>
 #include <unordered_set>
@@ -66,13 +66,16 @@ Matrix<T>::Matrix(
     std::shared_ptr<spmv::L2GMap> row_map)
     : _mat_local(mat), _mat_remote(nullptr), _mat_diagonal(nullptr),
       _col_map(col_map), _row_map(row_map), _nnz(mat->nonZeros()),
-      _symmetric(false), _overlap(false)
+      _symmetric(false)
 #ifdef _OPENMP
       ,
       _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
       _map_start(nullptr), _map_end(nullptr), _y_local(nullptr)
 #endif // _OPENMP
 {
+  // Assert overlapping is disabled in the column map
+  if (col_map->overlapping())
+    throw std::runtime_error("Ovelapping not supported in this format!");
 #ifdef EIGEN_USE_MKL_ALL
   mkl_init();
 #endif // _EIGEN_USE_MKL_ALL
@@ -86,8 +89,7 @@ Matrix<T>::Matrix(
     std::shared_ptr<spmv::L2GMap> row_map)
     : _mat_local(mat_local), _mat_remote(mat_remote), _mat_diagonal(nullptr),
       _col_map(col_map), _row_map(row_map),
-      _nnz(mat_local->nonZeros() + mat_remote->nonZeros()), _symmetric(false),
-      _overlap(true)
+      _nnz(mat_local->nonZeros() + mat_remote->nonZeros()), _symmetric(false)
 #ifdef _OPENMP
       ,
       _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
@@ -109,10 +111,10 @@ Matrix<T>::Matrix(
     std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
     std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> mat_diagonal,
     std::shared_ptr<spmv::L2GMap> col_map,
-    std::shared_ptr<spmv::L2GMap> row_map, int nnz_full, bool overlap)
+    std::shared_ptr<spmv::L2GMap> row_map, int nnz_full)
     : _mat_local(mat_local), _mat_remote(mat_remote),
       _mat_diagonal(mat_diagonal), _col_map(col_map), _row_map(row_map),
-      _nnz(nnz_full), _symmetric(true), _overlap(overlap)
+      _nnz(nnz_full), _symmetric(true)
 #ifdef _OPENMP
       ,
       _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
@@ -133,7 +135,7 @@ Matrix<T>::~Matrix()
   {
     mkl_sparse_destroy(_mat_local_mkl);
   }
-  if (_overlap)
+  if (_col_map->overlapping())
     mkl_sparse_destroy(_mat_remote_mkl);
 #endif // _EIGEN_USE_MKL_ALL
 #ifdef _OPENMP
@@ -149,6 +151,17 @@ Matrix<T>::~Matrix()
 }
 //---------------------
 template <typename T>
+int Matrix<T>::non_zeros() const
+{
+  if (_symmetric)
+    return _nnz;
+  else if (_col_map->overlapping())
+    return _mat_local->nonZeros() + _mat_remote->nonZeros();
+  else
+    return _mat_local->nonZeros();
+}
+//---------------------
+template <typename T>
 size_t Matrix<T>::format_size() const
 {
   size_t total_bytes;
@@ -156,7 +169,7 @@ size_t Matrix<T>::format_size() const
   total_bytes = sizeof(int) * _mat_local->rows()
                 + (sizeof(int) + sizeof(T)) * _mat_local->nonZeros();
   // Contribution of remote block
-  if (_symmetric || _overlap)
+  if (_symmetric || _col_map->overlapping())
     total_bytes += sizeof(int) * _mat_remote->rows()
                    + (sizeof(int) + sizeof(T)) * _mat_remote->nonZeros();
   // Contribution of diagonal
@@ -170,11 +183,11 @@ template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1> Matrix<T>::
 operator*(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 {
-  if (_symmetric && _overlap)
+  if (_symmetric && _col_map->overlapping())
     return spmv_sym_overlap(b);
   if (_symmetric)
     return spmv_sym(b);
-  if (_overlap)
+  if (_col_map->overlapping())
     return spmv_overlap(b);
   return (*_mat_local) * b;
 }
@@ -186,7 +199,7 @@ Matrix<T>::transpmult(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
   if (_symmetric)
     throw std::runtime_error(
         "transpmult() operation not yet implemented for symmetric matrices");
-  else if (_overlap)
+  else if (_col_map->overlapping())
     return _mat_local->transpose() * b + _mat_remote->transpose() * b;
   else
     return _mat_local->transpose() * b;
@@ -197,11 +210,11 @@ Matrix<T> Matrix<T>::create_matrix(
     MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
     std::int64_t nrows_local, std::int64_t ncols_local,
     std::vector<std::int64_t> row_ghosts, std::vector<std::int64_t> col_ghosts,
-    bool symmetric, bool p2p, bool overlap)
+    bool symmetric, CommunicationModel cm)
 {
   return create_matrix(comm, mat.outerIndexPtr(), mat.innerIndexPtr(),
                        mat.valuePtr(), nrows_local, ncols_local, row_ghosts,
-                       col_ghosts, symmetric, p2p, overlap);
+                       col_ghosts, symmetric, cm);
 }
 //---------------------
 template <typename T>
@@ -211,7 +224,7 @@ Matrix<T> Matrix<T>::create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
                                    std::int64_t ncols_local,
                                    std::vector<std::int64_t> row_ghosts,
                                    std::vector<std::int64_t> col_ghosts,
-                                   bool symmetric, bool p2p, bool overlap)
+                                   bool symmetric, CommunicationModel cm)
 {
   int mpi_size, mpi_rank;
   MPI_Comm_size(comm, &mpi_size);
@@ -401,7 +414,8 @@ Matrix<T> Matrix<T>::create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
           mat_remote_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
         }
       }
-      else if (overlap)
+      else if (cm == CommunicationModel::p2p_nonblocking
+               || cm == CommunicationModel::collective_nonblocking)
       {
         if (col < ncols_local)
           mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
@@ -460,7 +474,8 @@ Matrix<T> Matrix<T>::create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
           mat_remote_data.push_back(Eigen::Triplet<T>(row, col, val));
         }
       }
-      else if (overlap)
+      else if (cm == CommunicationModel::p2p_nonblocking
+               || cm == CommunicationModel::collective_nonblocking)
       {
         if (col < ncols_local)
           mat_data.push_back(Eigen::Triplet<T>(row, col, val));
@@ -504,17 +519,17 @@ Matrix<T> Matrix<T>::create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
     }
 
     std::shared_ptr<spmv::L2GMap> col_map
-        = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts);
+        = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts, cm);
     std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
         comm, nrows_local, std::vector<std::int64_t>());
 
     // Number of nonzeros in full matrix
     std::int64_t nnz
         = 2 * Blocal->nonZeros() + Bremote->nonZeros() + unique_rows.size();
-    return spmv::Matrix<T>(Blocal, Bremote, Bdiagonal, col_map, row_map, nnz,
-                           overlap);
+    return spmv::Matrix<T>(Blocal, Bremote, Bdiagonal, col_map, row_map, nnz);
   }
-  else if (overlap)
+  else if (cm == CommunicationModel::p2p_nonblocking
+           || cm == CommunicationModel::collective_nonblocking)
   {
     // Rebuild the sparse matrix block into two sub-blocks
     // The "local" sub-block includes nonzeros within the local column
@@ -528,8 +543,8 @@ Matrix<T> Matrix<T>::create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
     Blocal->setFromTriplets(mat_data.begin(), mat_data.end());
     Bremote->setFromTriplets(mat_remote_data.begin(), mat_remote_data.end());
 
-    std::shared_ptr<spmv::L2GMap> col_map = std::make_shared<spmv::L2GMap>(
-        comm, ncols_local, new_col_ghosts, p2p, overlap);
+    std::shared_ptr<spmv::L2GMap> col_map
+        = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts, cm);
     std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
         comm, nrows_local, std::vector<std::int64_t>());
 
@@ -541,8 +556,8 @@ Matrix<T> Matrix<T>::create_matrix(MPI_Comm comm, const std::int32_t* rowptr,
         nrows_local, ncols_local + new_col_ghosts.size());
     B->setFromTriplets(mat_data.begin(), mat_data.end());
 
-    std::shared_ptr<spmv::L2GMap> col_map = std::make_shared<spmv::L2GMap>(
-        comm, ncols_local, new_col_ghosts, p2p, false);
+    std::shared_ptr<spmv::L2GMap> col_map
+        = std::make_shared<spmv::L2GMap>(comm, ncols_local, new_col_ghosts, cm);
     std::shared_ptr<spmv::L2GMap> row_map = std::make_shared<spmv::L2GMap>(
         comm, nrows_local, std::vector<std::int64_t>());
 
@@ -1022,7 +1037,7 @@ void Matrix<double>::mkl_init()
   _mat_local_desc.type = SPARSE_MATRIX_TYPE_GENERAL;
   _mat_local_desc.diag = SPARSE_DIAG_NON_UNIT;
 
-  if (_overlap && _mat_remote->nonZeros() > 0)
+  if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     status = mkl_sparse_d_create_csr(
         &_mat_remote_mkl, SPARSE_INDEX_BASE_ZERO, _mat_remote->rows(),
@@ -1065,7 +1080,7 @@ void Matrix<std::complex<double>>::mkl_init()
   _mat_local_desc.type = SPARSE_MATRIX_TYPE_GENERAL;
   _mat_local_desc.diag = SPARSE_DIAG_NON_UNIT;
 
-  if (_overlap && _mat_remote->nonZeros() > 0)
+  if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     status = mkl_sparse_z_create_csr(
         &_mat_remote_mkl, SPARSE_INDEX_BASE_ZERO, _mat_remote->rows(),
@@ -1108,7 +1123,7 @@ void Matrix<float>::mkl_init()
   _mat_local_desc.type = SPARSE_MATRIX_TYPE_GENERAL;
   _mat_local_desc.diag = SPARSE_DIAG_NON_UNIT;
 
-  if (_overlap && _mat_remote->nonZeros() > 0)
+  if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     status = mkl_sparse_s_create_csr(
         &_mat_remote_mkl, SPARSE_INDEX_BASE_ZERO, _mat_remote->rows(),
@@ -1151,7 +1166,7 @@ void Matrix<std::complex<float>>::mkl_init()
   _mat_local_desc.type = SPARSE_MATRIX_TYPE_GENERAL;
   _mat_local_desc.diag = SPARSE_DIAG_NON_UNIT;
 
-  if (_overlap && _mat_remote->nonZeros() > 0)
+  if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     status = mkl_sparse_c_create_csr(
         &_mat_remote_mkl, SPARSE_INDEX_BASE_ZERO, _mat_remote->rows(),
@@ -1181,7 +1196,7 @@ Eigen::VectorXd Matrix<double>::operator*(Eigen::VectorXd& b) const
   {
     y = spmv_sym(b);
   }
-  else if (_overlap && _mat_remote->nonZeros() > 0)
+  else if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     mkl_sparse_d_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, _mat_local_mkl,
                     _mat_local_desc, b.data(), 0.0, y.data());
@@ -1228,7 +1243,7 @@ Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>
     throw std::runtime_error("Multiplication not yet implemented for symmetric "
                              "matrices for complex data");
   }
-  else if (_overlap && _mat_remote->nonZeros() > 0)
+  else if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     mkl_sparse_z_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, _mat_local_mkl,
                     _mat_local_desc, (MKL_Complex16*)b.data(), zero,
@@ -1277,7 +1292,7 @@ Eigen::VectorXf Matrix<float>::operator*(Eigen::VectorXf& b) const
   {
     y = spmv_sym(b);
   }
-  else if (_overlap && _mat_remote->nonZeros() > 0)
+  else if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     mkl_sparse_s_mv(SPARSE_OPERATION_NON_TRANSPOSE, 1.0, _mat_local_mkl,
                     _mat_local_desc, b.data(), 0.0, y.data());
@@ -1324,7 +1339,7 @@ Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>
     throw std::runtime_error("Multiplication not yet implemented for symmetric "
                              "matrices for complex data");
   }
-  else if (_overlap && _mat_remote->nonZeros() > 0)
+  else if (_col_map->overlapping() && _mat_remote->nonZeros() > 0)
   {
     mkl_sparse_c_mv(SPARSE_OPERATION_NON_TRANSPOSE, one, _mat_local_mkl,
                     _mat_local_desc, (MKL_Complex8*)b.data(), zero,

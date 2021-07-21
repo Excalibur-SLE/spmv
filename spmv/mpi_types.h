@@ -1,6 +1,7 @@
 // Copyright (C) 2020 Chris Richardson (chris@bpi.cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include <complex>
 #include <mpi.h>
 
 #pragma once
@@ -32,4 +33,16 @@ inline MPI_Datatype mpi_type<std::complex<double>>()
   return MPI_DOUBLE_COMPLEX;
 }
 // @endcond
+
+// MPI communication model
+enum class CommunicationModel
+{
+  p2p_blocking,
+  p2p_nonblocking,
+  collective_blocking,
+  collective_nonblocking,
+  onesided_put_active,
+  onesided_put_passive
+};
+
 } // namespace spmv

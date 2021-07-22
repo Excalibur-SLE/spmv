@@ -320,7 +320,7 @@ void L2GMap::update_onesided_put_active(T* vec_data) const
   const int num_neighbours = _neighbours.size();
   MPI_Datatype data_type = mpi_type<T>();
   // Synchronize private and public windows
-  MPI_Win_fence(0, win);
+  MPI_Win_fence(MPI_MODE_NOPRECEDE, win);
   for (int i = 0; i < num_neighbours; ++i)
   {
     T* send_buf = databuf.data() + _recv_offset[i];
@@ -328,7 +328,7 @@ void L2GMap::update_onesided_put_active(T* vec_data) const
             _recv_win_offset[i], _recv_count[i], data_type, win);
   }
   // Synchronize private and public windows
-  MPI_Win_fence(0, win);
+  MPI_Win_fence(MPI_MODE_NOSUCCEED, win);
 
   MPI_Win_free(&win);
 }

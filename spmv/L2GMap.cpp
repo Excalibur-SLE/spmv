@@ -118,7 +118,7 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
       || _cm == CommunicationModel::onesided_put_passive)
   {
     _recv_win_offset.resize(neighbour_size);
-    MPI_Neighbor_alltoall(_recv_offset.data(), 1, MPI_INT,
+    MPI_Neighbor_alltoall(_send_offset.data(), 1, MPI_INT,
                           _recv_win_offset.data(), 1, MPI_INT, _neighbour_comm);
   }
 
@@ -297,7 +297,6 @@ void L2GMap::update_p2p_end(T* vec_data) const
   MPI_Waitall(2 * _neighbours.size(), _req, MPI_STATUSES_IGNORE);
   // Copy ghosts from intermediate buffer to vector
   memcpy((void*)(vec_data + local_size()), _recv_buf, num_ghosts() * sizeof(T));
-  std::cout << "HELLO" << std::endl;
 }
 //-----------------------------------------------------------------------------
 template <typename T>

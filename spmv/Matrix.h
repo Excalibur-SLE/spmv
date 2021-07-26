@@ -88,7 +88,7 @@ public:
       std::int64_t nrows_local, std::int64_t ncols_local,
       std::vector<std::int64_t> row_ghosts,
       std::vector<std::int64_t> col_ghosts, bool symmetric = false,
-      CommunicationModel cm = CommunicationModel::collective_nonblocking);
+      CommunicationModel cm = CommunicationModel::collective_blocking);
 
   /// Create an `spmv::Matrix` from a CSR matrix and row and column
   /// mappings, such that the resulting matrix has no row ghosts, but only

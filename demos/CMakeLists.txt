@@ -1,11 +1,15 @@
-
 # Executables
-
-add_executable(cgmain cgmain.cpp)
-target_link_libraries(cgmain LINK_PUBLIC ${PROJECT_NAME})
-
-add_executable(matvecmain matvecmain.cpp CreateA.cpp)
-target_link_libraries(matvecmain ${PROJECT_NAME})
+if(USE_DPCPP)
+  add_executable(cg_demo cg_sycl.cpp)
+  target_link_libraries(cg_demo LINK_PUBLIC ${PROJECT_NAME})
+  add_executable(spmv_demo spmv_sycl.cpp CreateA.cpp)
+  target_link_libraries(spmv_demo LINK_PUBLIC ${PROJECT_NAME})
+else()
+  add_executable(cg_demo cg.cpp)
+  target_link_libraries(cg_demo LINK_PUBLIC ${PROJECT_NAME})
+  add_executable(spmv_demo spmv.cpp CreateA.cpp)
+  target_link_libraries(spmv_demo ${PROJECT_NAME})
+endif()
 
 add_executable(restrictmain restrictmain.cpp)
 target_link_libraries(restrictmain ${PROJECT_NAME})

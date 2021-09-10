@@ -7,5 +7,5 @@ build:
     - mkdir build && cd build
     - cmake .. -DCMAKE_PREFIX_PATH=/usr/local && make -j && make install
     - export OMP_NUM_THREADS=1
-    - ./demos/matvecmain
-    - mpirun -n 2 ./demos/matvecmain
+    - ./demos/spmv_demo
+    - mpirun -n 2 ./demos/spmv_demo

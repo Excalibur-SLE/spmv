@@ -26,7 +26,7 @@ void matvec_main()
   auto timer_start = std::chrono::system_clock::now();
 
   // Either create a simple 1D stencil
-  spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 500000);
+  spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 2000000);
 
   // Or read file created with "-ksp_view_mat binary" option
   //  spmv::Matrix A = spmv::read_petsc_binary(MPI_COMM_WORLD, "A4.dat");
@@ -79,10 +79,10 @@ void matvec_main()
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 
-    timer_start = std::chrono::system_clock::now();
-    psp.head(M) = q;
-    timer_end = std::chrono::system_clock::now();
-    timings["4.Copy"] += (timer_end - timer_start);
+    // timer_start = std::chrono::system_clock::now();
+    // psp.head(M) = q;
+    // timer_end = std::chrono::system_clock::now();
+    // timings["4.Copy"] += (timer_end - timer_start);
   }
 
   double pnorm = psp.head(M).squaredNorm();

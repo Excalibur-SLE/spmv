@@ -13,6 +13,13 @@
 #include <mkl.h>
 #endif
 
+#ifdef _SYCL
+#include <CL/sycl.hpp>
+using namespace sycl;
+#endif
+
+#include <mpi.h>
+
 #pragma once
 
 /// Simple Distributed Sparse Linear Algebra Library
@@ -61,12 +68,22 @@ public:
   /// Number of non-zeros in the matrix
   int non_zeros() const;
 
+  bool symmetric() const { return _symmetric; }
+
   /// The size of the matrix encoding in bytes
   size_t format_size() const;
 
-  /// MatVec operator for A x
+  /// MatVec operator that works with Eigen vectors
   Eigen::Matrix<T, Eigen::Dynamic, 1>
   operator*(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
+
+  // FIXME: unify interfaces
+#ifdef _SYCL
+  /// SpMV kernel
+  event spmv_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+  /// SpMV symmetric kernel
+  event spmv_sym_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+#endif
 
   /// MatVec operator for A^T x
   Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -78,12 +95,7 @@ public:
   /// Column mapping (local-to-global)
   std::shared_ptr<const L2GMap> col_map() const { return _col_map; }
 
-  /// Create an `spmv::Matrix` from an Eigen::SparseMatrix and row and column
-  /// mappings, such that the resulting matrix has no row ghosts, but only
-  /// column ghosts. This is achieved by sending ghost rows to their owners,
-  /// where they are summed into existing rows. The column ghost mapping will
-  /// also change in this process.
-  static Matrix<T> create_matrix(
+  static Matrix<T>* create_matrix(
       MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
       std::int64_t nrows_local, std::int64_t ncols_local,
       std::vector<std::int64_t> row_ghosts,
@@ -95,12 +107,12 @@ public:
   /// column ghosts. This is achieved by sending ghost rows to their owners,
   /// where they are summed into existing rows. The column ghost mapping will
   /// also change in this process.
-  static Matrix<T> create_matrix(
+  static Matrix<T>* create_matrix(
       MPI_Comm comm, const std::int32_t* rowptr, const std::int32_t* colind,
       const T* values, std::int64_t nrows_local, std::int64_t ncols_local,
       std::vector<std::int64_t> row_ghosts,
       std::vector<std::int64_t> col_ghosts, bool symmetric = false,
-      CommunicationModel cm = CommunicationModel::collective_nonblocking);
+      CommunicationModel cm = CommunicationModel::collective_blocking);
 
 private:
   // Storage for matrix
@@ -122,27 +134,28 @@ private:
   int _nnz;
   bool _symmetric;
 
-#ifdef _OPENMP
+#if defined(_OPENMP) || defined(_SYCL)
   struct ConflictMap
   {
     int length;
     int* pos;
-    short* tid;
+    short* vid;
 
     ConflictMap(const int ncnfls) : length(ncnfls)
     {
       pos = new int[ncnfls];
-      tid = new short[ncnfls];
+      vid = new short[ncnfls];
     }
 
     ~ConflictMap()
     {
       delete[] pos;
-      delete[] tid;
+      delete[] vid;
     }
   };
 
   int _nthreads;
+  int _ncnfls;
   ConflictMap* _cnfl_map;
   int* _row_split;
   int* _map_start;
@@ -150,8 +163,25 @@ private:
   T** _y_local;
 #endif
 
+#ifdef _SYCL
+  // SYCL-specific auxiliary data
+  buffer<int>* _d_rowptr_local;
+  buffer<int>* _d_colind_local;
+  buffer<T>* _d_values_local;
+  buffer<int>* _d_rowptr_remote;
+  buffer<int>* _d_colind_remote;
+  buffer<T>* _d_values_remote;
+  buffer<T>* _d_diagonal;
+  buffer<int>* _d_row_split;
+  buffer<int>* _d_map_start;
+  buffer<int>* _d_map_end;
+  buffer<short>* _d_cnfl_vid;
+  buffer<int>* _d_cnfl_pos;
+  buffer<T, 2>* _d_y_local;
+#endif
+
   // Private helper functions
-#ifdef _OPENMP
+#if defined(_OPENMP) || defined(_SYCL)
   /// Partition the matrix to threads so that every thread has approximately the
   /// same number of rows
   void partition_by_nrows(const int nthreads);
@@ -164,13 +194,13 @@ private:
 
   /// SpMV kernel with comm/comp overlap
   Eigen::Matrix<T, Eigen::Dynamic, 1>
-  spmv_overlap(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
+      spmv_overlap(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
   /// Symmetric SpMV kernel
   Eigen::Matrix<T, Eigen::Dynamic, 1>
   spmv_sym(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
   /// Symmetric SpMV kernel with comm/comp overlap
   Eigen::Matrix<T, Eigen::Dynamic, 1>
-  spmv_sym_overlap(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
+      spmv_sym_overlap(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
 
 #ifdef EIGEN_USE_MKL_ALL
   /// Setup the Intel MKL library

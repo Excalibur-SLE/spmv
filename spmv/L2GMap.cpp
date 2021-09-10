@@ -1,4 +1,5 @@
 // Copyright (C) 2020 Chris Richardson (chris@bpi.cam.ac.uk)
+// Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
 #include "L2GMap.h"

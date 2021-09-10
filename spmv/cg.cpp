@@ -1,4 +1,5 @@
 // Copyright (C) 2020 Chris Richardson (chris@bpi.cam.ac.uk) and Jeffrey Salmond
+// Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
 #include "cg.h"
@@ -131,8 +132,10 @@ std::tuple<double*, int> spmv::cg_sycl(MPI_Comm comm, sycl::queue& q,
 
     // y = A.p
     col_l2g->update(p);
-    A.spmv_sycl(q, p, y).wait();
-    // A.spmv_sym_sycl(q, p, y).wait();
+    if (A.symmetric())
+      A.spmv_sym_sycl(q, p, y).wait();
+    else
+      A.spmv_sycl(q, p, y).wait();
 
     // Calculate alpha = r.r/p.y
     const double pdoty_local = dot(q, M, p, y);

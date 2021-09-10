@@ -15,7 +15,7 @@
 
 #ifdef _SYCL
 #include <CL/sycl.hpp>
-namespace sycl = sycl;
+using namespace sycl;
 #endif
 
 #include <mpi.h>
@@ -68,12 +68,22 @@ public:
   /// Number of non-zeros in the matrix
   int non_zeros() const;
 
+  bool symmetric() const { return _symmetric; }
+
   /// The size of the matrix encoding in bytes
   size_t format_size() const;
 
   /// MatVec operator that works with Eigen vectors
   Eigen::Matrix<T, Eigen::Dynamic, 1>
   operator*(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
+
+  // FIXME: unify interfaces
+#ifdef _SYCL
+  /// SpMV kernel
+  event spmv_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+  /// SpMV symmetric kernel
+  event spmv_sym_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+#endif
 
   /// MatVec operator for A^T x
   Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -85,29 +95,24 @@ public:
   /// Column mapping (local-to-global)
   std::shared_ptr<const L2GMap> col_map() const { return _col_map; }
 
-  /// Create an `spmv::Matrix` from an Eigen::SparseMatrix and row and column
-  /// mappings, such that the resulting matrix has no row ghosts, but only
-  /// column ghosts. This is achieved by sending ghost rows to their owners,
-  /// where they are summed into existing rows. The column ghost mapping will
-  /// also change in this process.
-  static Matrix<T> create_matrix(
+  static Matrix<T>* create_matrix(
       MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
       std::int64_t nrows_local, std::int64_t ncols_local,
       std::vector<std::int64_t> row_ghosts,
       std::vector<std::int64_t> col_ghosts, bool symmetric = false,
-      CommunicationModel cm = CommunicationModel::collective_nonblocking);
+      CommunicationModel cm = CommunicationModel::collective_blocking);
 
   /// Create an `spmv::Matrix` from a CSR matrix and row and column
   /// mappings, such that the resulting matrix has no row ghosts, but only
   /// column ghosts. This is achieved by sending ghost rows to their owners,
   /// where they are summed into existing rows. The column ghost mapping will
   /// also change in this process.
-  static Matrix<T> create_matrix(
+  static Matrix<T>* create_matrix(
       MPI_Comm comm, const std::int32_t* rowptr, const std::int32_t* colind,
       const T* values, std::int64_t nrows_local, std::int64_t ncols_local,
       std::vector<std::int64_t> row_ghosts,
       std::vector<std::int64_t> col_ghosts, bool symmetric = false,
-      CommunicationModel cm = CommunicationModel::collective_nonblocking);
+      CommunicationModel cm = CommunicationModel::collective_blocking);
 
 private:
   // Storage for matrix
@@ -160,19 +165,19 @@ private:
 
 #ifdef _SYCL
   // SYCL-specific auxiliary data
-  sycl::buffer<int, 1>* _d_rowptr_local;
-  sycl::buffer<int, 1>* _d_colind_local;
-  sycl::buffer<T, 1>* _d_values_local;
-  sycl::buffer<int, 1>* _d_rowptr_remote;
-  sycl::buffer<int, 1>* _d_colind_remote;
-  sycl::buffer<T, 1>* _d_values_remote;
-  sycl::buffer<T, 1>* _d_diagonal;
-  sycl::buffer<int, 1>* _d_row_split;
-  sycl::buffer<int, 1>* _d_map_start;
-  sycl::buffer<int, 1>* _d_map_end;
-  sycl::buffer<short, 1>* _d_cnfl_vid;
-  sycl::buffer<int, 1>* _d_cnfl_pos;
-  sycl::buffer<T, 2>* _d_y_local;
+  buffer<int>* _d_rowptr_local;
+  buffer<int>* _d_colind_local;
+  buffer<T>* _d_values_local;
+  buffer<int>* _d_rowptr_remote;
+  buffer<int>* _d_colind_remote;
+  buffer<T>* _d_values_remote;
+  buffer<T>* _d_diagonal;
+  buffer<int>* _d_row_split;
+  buffer<int>* _d_map_start;
+  buffer<int>* _d_map_end;
+  buffer<short>* _d_cnfl_vid;
+  buffer<int>* _d_cnfl_pos;
+  buffer<T, 2>* _d_y_local;
 #endif
 
   // Private helper functions
@@ -187,16 +192,6 @@ private:
   void tune(const int nthreads);
 #endif
 
-  // FIXME
-public:
-#ifdef _SYCL
-  /// SpMV kernel
-  sycl::event spmv_sycl(sycl::queue& q, T* __restrict__ b,
-                        T* __restrict__ y) const;
-  /// SpMV symmetric kernel
-  sycl::event spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
-                            T* __restrict__ y) const;
-#endif
   /// SpMV kernel with comm/comp overlap
   Eigen::Matrix<T, Eigen::Dynamic, 1>
       spmv_overlap(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;

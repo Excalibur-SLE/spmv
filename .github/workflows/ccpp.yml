@@ -16,4 +16,4 @@ jobs:
     - name: make
       run: make
     - name: Run with 2 processes
-      run: ./demos/matvecmain && OMP_NUM_THREADS=1 mpirun -n 2 ./demos/matvecmain
+      run: ./demos/spmv_demo && OMP_NUM_THREADS=1 mpirun -n 2 ./demos/spmv_demo

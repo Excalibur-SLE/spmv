@@ -707,7 +707,7 @@ void Matrix<T>::partition_by_nrows(const int nthreads)
   }
 
   // Compute new matrix splits
-  int nrows_per_split = nrows / nthreads;
+  int nrows_per_split = (nrows + nthreads - 1) / nthreads;
   int i;
   _row_split[0] = 0;
   for (i = 0; i < nthreads; i++)
@@ -750,7 +750,7 @@ void Matrix<T>::partition_by_nnz(const int nthreads)
   }
 
   // Compute the matrix splits.
-  int nnz_per_split = nnz / nthreads;
+  int nnz_per_split = (nnz + nthreads - 1) / nthreads;
   int curr_nnz = 0;
   int row_start = 0;
   int split_cnt = 0;

@@ -133,9 +133,9 @@ std::tuple<double*, int> spmv::cg_sycl(MPI_Comm comm, sycl::queue& q,
     // y = A.p
     col_l2g->update(p);
     if (A.symmetric())
-      A.spmv_sym_sycl(q, p, y).wait();
+      A.spmv_sym_sycl(q, p, y);
     else
-      A.spmv_sycl(q, p, y).wait();
+      A.spmv_sycl(q, p, y);
 
     // Calculate alpha = r.r/p.y
     const double pdoty_local = dot(q, M, p, y);

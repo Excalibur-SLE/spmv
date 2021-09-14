@@ -893,44 +893,184 @@ void Matrix<T>::tune(const int nthreads)
 #endif // _OPENMP
 //---------------------
 #ifdef _SYCL
+static MergeCoordinate merge_path_search(const int diagonal, const int nrows,
+                                         const int nnz, int* rowptr)
+{
+  int row_min = max(diagonal - nnz, 0);
+  int row_max = min(diagonal, nrows);
+
+  // Binary search constraint: row_idx + val_idx = diagonal
+  // We are looking for the row_idx for which we can consume "diagonal" number
+  // of elements from both the rowptr and values array
+  while (row_min < row_max)
+  {
+    int pivot = row_min + (row_max - row_min) / 2;
+    // The total number of elements I have consumed from both the rowptr and
+    // values array at row_idx==pivot is equal to the sum of rowptr[pivot + 1]
+    // (number of nonzeros including this row) and (pivot + 1) (the number of
+    // entries from rowptr)
+    if (rowptr[pivot + 1] + pivot + 1 <= diagonal)
+    {
+      // Move downwards and discard top right of cross diagonal range
+      row_min = pivot + 1;
+    }
+    else
+    {
+      // Move upwards and discard bottom left of cross diagonal range
+      row_max = pivot;
+    }
+  }
+
+  MergeCoordinate path_coordinate;
+  path_coordinate.row_idx = row_min;
+  path_coordinate.val_idx = diagonal - row_min;
+  return path_coordinate;
+}
+
 template <typename T>
-sycl::event Matrix<T>::spmv_sycl(sycl::queue& q, T* __restrict__ b,
-                                 T* __restrict__ y) const
+void Matrix<T>::spmv_sycl(sycl::queue& q, T* __restrict__ b,
+                          T* __restrict__ y) const
 {
 #ifdef _MKL
 #else
   namespace acc = sycl::access;
-  sycl::event event = q.submit([&](sycl::handler& h) {
-    const size_t nrows = _mat_local->rows();
-    auto rowptr = _d_rowptr_local->template get_access<acc::mode::read>(h);
-    auto colind = _d_colind_local->template get_access<acc::mode::read>(h);
-    auto values = _d_values_local->template get_access<acc::mode::read>(h);
+  auto device = q.get_device();
 
-    h.parallel_for<class spmv>(sycl::range<1>{nrows}, [=](sycl::id<1> it) {
-      const int i = it[0];
-      T y_tmp = 0;
+  if (device.is_gpu())
+  {
+    auto compute_units = device.get_info<info::device::max_compute_units>();
+    auto work_group_size = device.get_info<info::device::max_work_group_size>();
 
-      for (int j = rowptr[i]; j < rowptr[i + 1]; ++j)
-      {
-        y_tmp += values[j] * b[colind[j]];
-      }
+    // Allocate auxiliary arrays for carry on
+    int nthreads = compute_units * work_group_size;
+    int* carry_row = malloc_shared<int>(compute_units * work_group_size, q);
+    T* carry_val = malloc_shared<T>(compute_units * work_group_size, q);
+    const int nrows = _mat_local->rows();
+    const int nnz = _mat_local->nonZeros();
 
-      y[i] = y_tmp;
+    q.submit([&](sycl::handler& h) {
+      auto rowptr = _d_rowptr_local->template get_access<acc::mode::read>(h);
+      auto colind = _d_colind_local->template get_access<acc::mode::read>(h);
+      auto values = _d_values_local->template get_access<acc::mode::read>(h);
+
+      h.parallel_for<class merge_spmv>(
+          nd_range<1>(compute_units * work_group_size, work_group_size),
+          [=](nd_item<1> item) {
+            auto tid = item.get_global_id(0);
+            int merge_path_length = nrows + nnz;
+            int items_per_thread
+                = (merge_path_length + nthreads - 1) / nthreads;
+
+            // Find starting and ending merge path coordinates (row index and
+            // value index) for this thread int diagonal_start =
+            // min(items_per_thread * tid, merge_path_length); int diagonal_end
+            // = min(items_per_thread * (tid + 1), merge_path_length);
+            int diagonal_start = ((items_per_thread * tid) < merge_path_length)
+                                     ? (items_per_thread * tid)
+                                     : merge_path_length;
+            int diagonal_end
+                = (items_per_thread * (tid + 1) < merge_path_length)
+                      ? (items_per_thread * (tid + 1))
+                      : merge_path_length;
+            MergeCoordinate path_start = merge_path_search(
+                diagonal_start, nrows, nnz, rowptr.get_pointer());
+            MergeCoordinate path_end = merge_path_search(
+                diagonal_end, nrows, nnz, rowptr.get_pointer());
+
+            T sum = 0;
+            for (int i = 0; i < items_per_thread; i++)
+            {
+              if (path_start.val_idx < rowptr[path_start.row_idx + 1])
+              {
+                // Accumulate and move down
+                sum += values[path_start.val_idx]
+                       * b[colind[path_start.val_idx]];
+                path_start.val_idx++;
+              }
+              else
+              {
+                // Flush row and move right
+                y[path_start.row_idx] = sum;
+                sum = 0;
+                path_start.row_idx++;
+              }
+            }
+
+            // // Process full rows first
+            // // FIXME: how can this be right if this row is shared to multiple
+            // threads? for (; path_start.row_idx < path_end.row_idx;
+            // ++path_start.row_idx) {
+            //   T y_tmp = 0;
+            //   for (; path_start.val_idx < rowptr[path_start.row_idx + 1];
+            //   ++path_start.val_idx) {
+            // 	y_tmp += values[path_start.val_idx] *
+            // x[colind[path_start.val_idx]];
+            //   }
+            //   y[path_start.row_idx] = y_tmp;
+            // }
+
+            // // Process last row (partial)
+            // T y_tmp = 0;
+            // for (; path_start.val_idx < path_end.val_idx;
+            // ++path_start.val_idx) {
+            //   y_tmp += values[path_start.val_idx] *
+            //   x[colind[path_start.val_idx]];
+            // }
+
+            // Save carry
+            carry_row[tid] = path_end.row_idx;
+            carry_val[tid] = sum;
+          });
     });
-  });
-  return event;
+    q.wait();
+
+    // Carry fix up for rows spanning multiple threads
+    for (int tid = 0; tid < nthreads - 1; tid++)
+    {
+      if (carry_row[tid] < nrows)
+      {
+        y[carry_row[tid]] += carry_val[tid];
+      }
+    }
+
+    free(carry_row, q);
+    free(carry_val, q);
+  }
+  else
+  {
+    q.submit([&](sycl::handler& h) {
+      const size_t nrows = _mat_local->rows();
+      auto rowptr = _d_rowptr_local->template get_access<acc::mode::read>(h);
+      auto colind = _d_colind_local->template get_access<acc::mode::read>(h);
+      auto values = _d_values_local->template get_access<acc::mode::read>(h);
+
+      h.parallel_for<class spmv>(sycl::range<1>{nrows}, [=](sycl::id<1> it) {
+        const int i = it[0];
+        T y_tmp = 0;
+
+        for (int j = rowptr[i]; j < rowptr[i + 1]; ++j)
+        {
+          y_tmp += values[j] * b[colind[j]];
+        }
+
+        y[i] = y_tmp;
+      });
+    });
+  }
+
+  q.wait();
 #endif
 }
 //---------------------
 template <typename T>
-sycl::event Matrix<T>::spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
-                                     T* __restrict__ y) const
+void Matrix<T>::spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
+                              T* __restrict__ y) const
 {
   namespace acc = sycl::access;
-  sycl::event event;
+  sycl::event previous_event, event;
 
   // Compute diagonal contribution
-  event = q.submit([&](sycl::handler& h) {
+  previous_event = q.submit([&](sycl::handler& h) {
     const size_t nrows = _mat_local->rows();
     auto diagonal = _d_diagonal->template get_access<acc::mode::read>(h);
 
@@ -940,19 +1080,20 @@ sycl::event Matrix<T>::spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
                                          y[i] = diagonal[i] * b[i];
                                        });
   });
-  q.wait();
 
   // Compute symmetric SpMV on local - local vectors phase
   if (_mat_local->nonZeros() > 0)
   {
     event = q.submit([&](sycl::handler& h) {
+      h.depends_on(previous_event);
+
       auto row_split = _d_row_split->template get_access<acc::mode::read>(h);
       auto rowptr = _d_rowptr_local->template get_access<acc::mode::read>(h);
       auto colind = _d_colind_local->template get_access<acc::mode::read>(h);
       auto values = _d_values_local->template get_access<acc::mode::read>(h);
       auto y_local = _d_y_local->template get_access<acc::mode::read_write>(h);
 
-      h.parallel_for<class sym_lower1>(
+      h.parallel_for<class sym_lower_local>(
           sycl::range<1>{_nthreads}, [=](sycl::id<1> it) {
             const int tid = it[0];
             const int row_offset = row_split[tid];
@@ -980,19 +1121,22 @@ sycl::event Matrix<T>::spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
             }
           });
     });
+
+    previous_event = event;
   }
-  q.wait();
 
   // Compute symmetric SpMV on remote block - local vectors phase
   if (_mat_remote->nonZeros() > 0)
   {
     event = q.submit([&](sycl::handler& h) {
+      h.depends_on(previous_event);
+
       auto row_split = _d_row_split->template get_access<acc::mode::read>(h);
       auto rowptr = _d_rowptr_remote->template get_access<acc::mode::read>(h);
       auto colind = _d_colind_remote->template get_access<acc::mode::read>(h);
       auto values = _d_values_remote->template get_access<acc::mode::read>(h);
 
-      h.parallel_for<class sym_lower1>(
+      h.parallel_for<class sym_lower_remote>(
           sycl::range<1>{_nthreads}, [=](sycl::id<1> it) {
             const int tid = it[0];
             for (int i = row_split[tid]; i < row_split[tid + 1]; ++i)
@@ -1009,13 +1153,16 @@ sycl::event Matrix<T>::spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
             }
           });
     });
+
+    previous_event = event;
   }
-  q.wait();
 
   // Reduction of local vectors phase
   if (_ncnfls > 0)
   {
     event = q.submit([&](sycl::handler& h) {
+      h.depends_on(previous_event);
+
       auto map_start = _d_map_start->template get_access<acc::mode::read>(h);
       auto map_end = _d_map_end->template get_access<acc::mode::read>(h);
       auto cnfl_vid = _d_cnfl_vid->template get_access<acc::mode::read>(h);
@@ -1034,9 +1181,11 @@ sycl::event Matrix<T>::spmv_sym_sycl(sycl::queue& q, T* __restrict__ b,
             }
           });
     });
+
+    previous_event = event;
   }
 
-  return event;
+  previous_event.wait();
 }
 #endif // _SYCL
 //---------------------

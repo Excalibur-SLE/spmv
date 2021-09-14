@@ -38,7 +38,7 @@ static std::vector<int> compute_ranges(int size, int N)
   return ranges;
 }
 
-static void test_spmv(bool symmetric)
+static void test_spmv(bool symmetric, sycl::queue &queue)
 {
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -50,10 +50,17 @@ static void test_spmv(bool symmetric)
   const int NNZ = 15;
   int rowptr[N + 1] = {0, 3, 6, 9, 13, 15};
 
-  int colind[NNZ] = {0, 1, 3, 0, 1, 3, 2, 3, 4, 0, 1, 2, 3, 2, 4};
+  int colind[NNZ] = {0, 1,    3,
+		     0, 1,    3,
+		           2, 3, 4,
+		     0, 1, 2, 3,
+		           2,    4};
 
-  double values[NNZ] = {1.0,  -2.0, -3.0, -2.0, 5.0, 4.0,  6.0, 4.0,
-                        -4.0, -3.0, 4.0,  4.0,  8.0, -4.0, 8.0};
+  double values[NNZ] = { 1.0, -2.0,      -3.0,
+	        	-2.0,  5.0,       4.0,
+		                     6.0, 4.0, -4.0,
+		        -3.0,  4.0,  4.0, 8.0,
+		                    -4.0,       8.0};
 
   // Define a global input vector
   Eigen::VectorXd x(N);
@@ -131,29 +138,30 @@ static void test_spmv(bool symmetric)
 
   // Define local vectors
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
-  Eigen::VectorXd y_local(nrows_local);
-  Eigen::VectorXd x_local(l2g->local_size() + l2g->num_ghosts());
+  auto y_local = sycl::malloc_shared<double>(nrows_local, queue);
+  auto x_local = sycl::malloc_shared<double>(l2g->local_size() + l2g->num_ghosts(), queue);
   // Initialize from global vector
-  memcpy(x_local.data(), x.data() + row_start, ncols_local * sizeof(double));
+  memcpy(x_local, x.data() + row_start, ncols_local * sizeof(double));
 
   // Compute SpMV
-  l2g->update(x_local.data());
-  y_local = (*A) * x_local;
+  l2g->update(x_local);
+  if (A->symmetric())
+    A->spmv_sym_sycl(queue, x_local, y_local);
+  else
+    A->spmv_sycl(queue, x_local, y_local);
 
-  double norm = y_local.squaredNorm();
+  Eigen::Map<Eigen::VectorXd> y_local_tmp(y_local, nrows_local);
+  double norm = y_local_tmp.squaredNorm();
   double norm_sum;
   MPI_Allreduce(&norm, &norm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
   // Cleanup
   delete A;
-
+  
   if (essentially_equal(norm_sum, norm_ref,
-                        std::numeric_limits<double>::epsilon()))
-  {
+                        std::numeric_limits<double>::epsilon())) {
     std::cout << "PASSED (Rank " << mpi_rank << ")" << std::endl;
-  }
-  else
-  {
+  } else {
     std::cout << "FAILED (Rank " << mpi_rank << ")" << std::endl;
     exit(1);
   }
@@ -177,19 +185,28 @@ int main(int argc, char** argv)
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
+  sycl::queue cpu_queue(sycl::cpu_selector{});
+  sycl::queue gpu_queue(sycl::cpu_selector{});
+  
   bool symmetric;
   if (mpi_rank == 0)
-    std::cout << "Running vanilla SpMV ... " << std::endl;
+    std::cout << "Running vanilla SpMV on CPU... " << std::endl;
   symmetric = false;
-  test_spmv(symmetric);
+  test_spmv(symmetric, cpu_queue);
+  if (mpi_rank == 0)
+    std::cout << "Running vanilla SpMV on GPU... " << std::endl;
+  test_spmv(symmetric, gpu_queue);  
 
   MPI_Barrier(MPI_COMM_WORLD);
-
+  
   if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV ... " << std::endl;
+    std::cout << "Running symmetric SpMV on CPU... " << std::endl;
   symmetric = true;
-  test_spmv(symmetric);
-
+  test_spmv(symmetric, cpu_queue);
+  if (mpi_rank == 0)
+    std::cout << "Running vanilla SpMV on GPU... " << std::endl;
+  test_spmv(symmetric, gpu_queue);  
+  
   MPI_Finalize();
   return 0;
 }

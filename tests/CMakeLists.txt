@@ -1,6 +1,10 @@
-add_executable(test_spmv test_spmv.cpp)
-target_link_libraries(test_spmv LINK_PUBLIC ${PROJECT_NAME})
+if(USE_DPCPP)
+  add_executable(test_spmv test_spmv_sycl.cpp)
+else()
+  add_executable(test_spmv test_spmv.cpp)
+endif()
 
+target_link_libraries(test_spmv LINK_PUBLIC ${PROJECT_NAME})
 add_test(spmv_n1 ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS} ./test_spmv)
 add_test(spmv_n2 ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS} ./test_spmv)
 

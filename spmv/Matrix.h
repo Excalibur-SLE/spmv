@@ -28,6 +28,12 @@ namespace spmv
 
 class L2GMap;
 
+struct MergeCoordinate
+{
+  int row_idx;
+  int val_idx;
+};
+
 template <typename T>
 class Matrix
 {
@@ -80,9 +86,9 @@ public:
   // FIXME: unify interfaces
 #ifdef _SYCL
   /// SpMV kernel
-  event spmv_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+  void spmv_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
   /// SpMV symmetric kernel
-  event spmv_sym_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+  void spmv_sym_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
 #endif
 
   /// MatVec operator for A^T x

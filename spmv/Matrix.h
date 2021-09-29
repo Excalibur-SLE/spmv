@@ -67,27 +67,28 @@ public:
   int cols() const { return _mat_local->cols(); }
   /// Number of non-zeros in the matrix
   int non_zeros() const;
-
+  /// True if symmetry is used in matrix encoding
   bool symmetric() const { return _symmetric; }
-
   /// The size of the matrix encoding in bytes
   size_t format_size() const;
 
-  /// MatVec operator that works with Eigen vectors
-  Eigen::Matrix<T, Eigen::Dynamic, 1>
-  operator*(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
-
-  // FIXME: unify interfaces
+  /// MatVec operator
 #ifdef _SYCL
-  /// SpMV kernel
-  void spmv_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
-  /// SpMV symmetric kernel
-  void spmv_sym_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+  /// SYCL interface Using USM pointers
+  void mult(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+#else
+  /// Normal interface using Eigen vectors
+  Eigen::Matrix<T, Eigen::Dynamic, 1>
+      mult(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
 #endif // _SYCL
 
   /// MatVec operator for A^T x
+#ifdef _SYCL
+  // FIXME
+#else
   Eigen::Matrix<T, Eigen::Dynamic, 1>
   transpmult(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
+#endif // _SYCL
 
   /// Row mapping (local-to-global). Usually, there will not be ghost rows.
   std::shared_ptr<L2GMap> row_map() const { return _row_map; }
@@ -193,7 +194,7 @@ private:
   void partition_by_nnz(const int nthreads);
   /// Tune the matrix for a number of threads. Can be called multiple times.
   void tune(const int nthreads);
-#endif
+#endif // _OPENMP || _SYCL
 
   /// SpMV kernel with comm/comp overlap
   Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -204,6 +205,12 @@ private:
   /// Symmetric SpMV kernel with comm/comp overlap
   Eigen::Matrix<T, Eigen::Dynamic, 1>
       spmv_sym_overlap(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
+#ifdef _SYCL
+  /// SpMV kernel with USM pointers
+  void spmv_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+  /// SpMV symmetric kernel with USM pointers
+  void spmv_sym_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
+#endif // _SYCL
 
 #ifdef USE_MKL
   /// Setup the Intel MKL library

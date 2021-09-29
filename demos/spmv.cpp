@@ -75,14 +75,14 @@ void matvec_main()
     timings["2.SparseUpdate"] += (timer_end - timer_start);
 
     timer_start = std::chrono::system_clock::now();
-    q = A * psp;
+    q = A.mult(psp);
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 
-    // timer_start = std::chrono::system_clock::now();
-    // psp.head(M) = q;
-    // timer_end = std::chrono::system_clock::now();
-    // timings["4.Copy"] += (timer_end - timer_start);
+    timer_start = std::chrono::system_clock::now();
+    psp.head(M) = q;
+    timer_end = std::chrono::system_clock::now();
+    timings["4.Copy"] += (timer_end - timer_start);
   }
 
   double pnorm = psp.head(M).squaredNorm();

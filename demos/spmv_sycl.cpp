@@ -81,7 +81,7 @@ void matvec_main()
     timings["2.SparseUpdate"] += (timer_end - timer_start);
 
     timer_start = std::chrono::system_clock::now();
-    A.spmv_sycl(queue, psp, q);
+    A.mult(queue, psp, q);
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 

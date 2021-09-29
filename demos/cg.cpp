@@ -67,7 +67,7 @@ int cg_main(int argc, char** argv)
 
   // Test result
   l2g->update(x.data());
-  Eigen::VectorXd r = A * x - b;
+  Eigen::VectorXd r = A.mult(x) - b;
   double rnorm = r.squaredNorm();
   double rnorm_sum;
   MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);

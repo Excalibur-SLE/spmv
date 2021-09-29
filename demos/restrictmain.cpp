@@ -78,7 +78,7 @@ void restrict_main()
     timings["2.SparseUpdate"] += (timer_end - timer_start);
 
     timer_start = std::chrono::system_clock::now();
-    q = R * psp;
+    q = R.mult(psp);
 
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);

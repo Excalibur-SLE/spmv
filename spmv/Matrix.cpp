@@ -287,9 +287,21 @@ size_t Matrix<T>::format_size() const
   return total_bytes;
 }
 //---------------------
+#ifdef _SYCL
 template <typename T>
-Eigen::Matrix<T, Eigen::Dynamic, 1> Matrix<T>::
-operator*(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
+void Matrix<T>::mult(queue& q, T* __restrict__ b, T* __restrict__ y) const
+{
+  if (_symmetric)
+    spmv_sym_sycl(q, b, y);
+  else
+    spmv_sycl(q, b, y);
+}
+//---------------------
+#else
+//---------------------
+template <typename T>
+Eigen::Matrix<T, Eigen::Dynamic, 1>
+    Matrix<T>::mult(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
 {
   if (_symmetric && _col_map->overlapping())
     return spmv_sym_overlap(b);
@@ -299,6 +311,12 @@ operator*(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
     return spmv_overlap(b);
   return (*_mat_local) * b;
 }
+#endif // _SYCL
+//---------------------
+#ifdef _SYCL
+// FIXME
+//---------------------
+#else
 //---------------------
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -312,6 +330,7 @@ Matrix<T>::transpmult(const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const
   else
     return _mat_local->transpose() * b;
 }
+#endif // _SYCL
 //---------------------
 template <typename T>
 Matrix<T>* Matrix<T>::create_matrix(
@@ -1599,7 +1618,7 @@ void Matrix<std::complex<float>>::mkl_init()
 }
 //----------------------
 template <>
-Eigen::VectorXd Matrix<double>::operator*(Eigen::VectorXd& b) const
+Eigen::VectorXd Matrix<double>::mult(Eigen::VectorXd& b) const
 {
   Eigen::VectorXd y(_mat_local->rows());
   if (_symmetric)
@@ -1643,8 +1662,8 @@ Eigen::VectorXd Matrix<double>::transpmult(const Eigen::VectorXd& b) const
 //----------------------
 template <>
 Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>
-    Matrix<std::complex<double>>::
-    operator*(Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
+Matrix<std::complex<double>>::mult(
+    Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1>& b) const
 {
   Eigen::Matrix<std::complex<double>, Eigen::Dynamic, 1> y(_mat_local->rows());
   const MKL_Complex16 one({1.0, 0.0}), zero({0.0, 0.0});
@@ -1695,7 +1714,7 @@ Matrix<std::complex<double>>::transpmult(
 }
 //----------------------
 template <>
-Eigen::VectorXf Matrix<float>::operator*(Eigen::VectorXf& b) const
+Eigen::VectorXf Matrix<float>::mult(Eigen::VectorXf& b) const
 {
   Eigen::VectorXf y(_mat_local->rows());
   if (_symmetric)
@@ -1739,8 +1758,8 @@ Eigen::VectorXf Matrix<float>::transpmult(const Eigen::VectorXf& b) const
 //----------------------
 template <>
 Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>
-    Matrix<std::complex<float>>::
-    operator*(Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
+Matrix<std::complex<float>>::mult(
+    Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1>& b) const
 {
   Eigen::Matrix<std::complex<float>, Eigen::Dynamic, 1> y(_mat_local->rows());
   const MKL_Complex8 one({1.0, 0.0}), zero({0.0, 0.0});

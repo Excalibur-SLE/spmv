@@ -10,7 +10,7 @@
 
 #include <spmv/L2GMap.h>
 #include <spmv/Matrix.h>
-#include <spmv/cg.h>
+#include <spmv/cg_sycl.h>
 #include <spmv/read_petsc.h>
 
 int cg_main(int argc, char** argv)
@@ -57,7 +57,7 @@ int cg_main(int argc, char** argv)
   // Turn on profiling for solver only
   MPI_Pcontrol(1);
   timer_start = std::chrono::system_clock::now();
-  auto [x, num_its] = spmv::cg_sycl(MPI_COMM_WORLD, queue, A, b, max_its, rtol);
+  auto [x, num_its] = spmv::cg(MPI_COMM_WORLD, queue, A, b, max_its, rtol);
   timer_end = std::chrono::system_clock::now();
   timings["1.Solve"] += (timer_end - timer_start);
   MPI_Pcontrol(0);

@@ -9,7 +9,7 @@ if(OpenMP_CXX_FOUND)
   target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
 endif()
 if(BLAS_FOUND)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC EIGEN_USE_MKL_ALL)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC USE_MKL)
   target_link_libraries(${PROJECT_NAME} PUBLIC ${BLAS_LIBRARIES})
 endif()
 

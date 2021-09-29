@@ -9,14 +9,14 @@
 #include <mpi.h>
 #include <vector>
 
-#ifdef EIGEN_USE_MKL_ALL
+#ifdef USE_MKL
 #include <mkl.h>
-#endif
+#endif // USE_MKL
 
 #ifdef _SYCL
 #include <CL/sycl.hpp>
 using namespace sycl;
-#endif
+#endif // _SYCL
 
 #include <mpi.h>
 
@@ -27,12 +27,6 @@ namespace spmv
 {
 
 class L2GMap;
-
-struct MergeCoordinate
-{
-  int row_idx;
-  int val_idx;
-};
 
 template <typename T>
 class Matrix
@@ -89,7 +83,7 @@ public:
   void spmv_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
   /// SpMV symmetric kernel
   void spmv_sym_sycl(queue& q, T* __restrict__ b, T* __restrict__ y) const;
-#endif
+#endif // _SYCL
 
   /// MatVec operator for A^T x
   Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -128,12 +122,12 @@ private:
       = nullptr;
   std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> _mat_diagonal
       = nullptr;
-#ifdef EIGEN_USE_MKL_ALL
+#ifdef USE_MKL
   sparse_matrix_t _mat_local_mkl;
   sparse_matrix_t _mat_remote_mkl;
   struct matrix_descr _mat_local_desc;
   struct matrix_descr _mat_remote_desc;
-#endif
+#endif // USE_MKL
 
   // Column and Row maps: usually _row_map will not have ghosts.
   std::shared_ptr<spmv::L2GMap> _col_map = nullptr;
@@ -187,7 +181,7 @@ private:
   buffer<short>* _d_cnfl_vid = nullptr;
   buffer<int>* _d_cnfl_pos = nullptr;
   buffer<T, 2>* _d_y_local = nullptr;
-#endif
+#endif // _SYCL
 
   // Private helper functions
 #if defined(_OPENMP) || defined(_SYCL)
@@ -211,9 +205,9 @@ private:
   Eigen::Matrix<T, Eigen::Dynamic, 1>
       spmv_sym_overlap(Eigen::Matrix<T, Eigen::Dynamic, 1>& b) const;
 
-#ifdef EIGEN_USE_MKL_ALL
+#ifdef USE_MKL
   /// Setup the Intel MKL library
   void mkl_init();
-#endif
+#endif // USE_MKL
 };
 } // namespace spmv

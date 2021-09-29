@@ -13,6 +13,12 @@ using namespace spmv;
 
 #if defined(_OPENMP) || defined(_SYCL)
 //-----------------------------------------------------------------------------
+struct MergeCoordinate
+{
+  int row_idx;
+  int val_idx;
+};
+
 static void** calloc_2d(size_t dim1, size_t dim2, size_t size)
 {
   char** ret = (char**)malloc(dim1 * sizeof(char*));
@@ -76,9 +82,9 @@ Matrix<T>::Matrix(
   // Assert overlapping is disabled in the column map
   if (col_map->overlapping())
     throw std::runtime_error("Ovelapping not supported in this format!");
-#ifdef EIGEN_USE_MKL_ALL
+#ifdef USE_MKL
   mkl_init();
-#endif // _EIGEN_USE_MKL_ALL
+#endif // USE_MKL
 
 #ifdef _SYCL
   // Initialise SYCL buffers, ownership is passed to SYCL runtime
@@ -110,9 +116,9 @@ Matrix<T>::Matrix(
   if (!col_map->overlapping())
     throw std::runtime_error("Ovelapping not enabled in column mapping!");
 
-#ifdef EIGEN_USE_MKL_ALL
+#ifdef USE_MKL
   mkl_init();
-#endif // _EIGEN_USE_MKL_ALL
+#endif // USE_MKL
 
 #ifdef _SYCL
   // Initialise SYCL buffers, ownership is passed to SYCL runtime
@@ -231,14 +237,14 @@ Matrix<T>::~Matrix()
   }
 #endif // _SYCL
 
-#ifdef EIGEN_USE_MKL_ALL
+#ifdef USE_MKL
   if (!_symmetric)
   {
     mkl_sparse_destroy(_mat_local_mkl);
   }
   if (_col_map->overlapping())
     mkl_sparse_destroy(_mat_remote_mkl);
-#endif // _EIGEN_USE_MKL_ALL
+#endif // USE_MKL
 
 #if defined(_OPENMP) || defined(_SYCL)
   if (_symmetric)
@@ -786,7 +792,7 @@ void Matrix<T>::tune(const int nthreads)
     _y_local = (T**)calloc_2d(nthreads - 1, _mat_local->rows(), sizeof(T));
 #else  // _SYCL
     _y_local = (T**)calloc_2d(nthreads, _mat_local->rows(), sizeof(T));
-#endif // _SYCL
+#endif // _OPEMP || _SYCL
 
     // Build conflict map for local block
     std::map<int, std::unordered_set<int>> row_conflicts;
@@ -871,7 +877,7 @@ void Matrix<T>::tune(const int nthreads)
     _ncnfls = ncnfls;
   }
 }
-#endif // _OPENMP
+#endif // _OPENMP || _SYCL
 //---------------------
 #ifdef _SYCL
 static MergeCoordinate merge_path_search(const int diagonal, const int nrows,
@@ -912,8 +918,6 @@ template <typename T>
 void Matrix<T>::spmv_sycl(sycl::queue& q, T* __restrict__ b,
                           T* __restrict__ y) const
 {
-#ifdef _MKL
-#else
   namespace acc = sycl::access;
   auto device = q.get_device();
 
@@ -1040,7 +1044,6 @@ void Matrix<T>::spmv_sycl(sycl::queue& q, T* __restrict__ b,
   }
 
   q.wait();
-#endif
 }
 //---------------------
 template <typename T>
@@ -1422,7 +1425,7 @@ Eigen::Matrix<T, Eigen::Dynamic, 1>
   return y;
 }
 //---------------------
-#ifdef EIGEN_USE_MKL_ALL
+#ifdef USE_MKL
 template <>
 void Matrix<double>::mkl_init()
 {
@@ -1786,7 +1789,7 @@ Matrix<std::complex<float>>::transpmult(
   }
   return y;
 }
-#endif // _EIGEN_USE_MKL_ALL
+#endif // USE_MKL
 
 //-----------------------------------------------------------------------------
 // Explicit instantiation

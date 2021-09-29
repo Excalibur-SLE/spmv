@@ -18,4 +18,21 @@ jobs:
     - name: Run unit tests
       run: make test
     - name: Run with 2 processes
-      run: ./demos/spmv_demo && OMP_NUM_THREADS=1 mpirun -n 2 ./demos/spmv_demo
+      run: ./demos/spmv_demo && mpirun -n 2 ./demos/spmv_demo
+
+  build_openmp:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Eigen3
+      run: sudo apt install -y libmpich-dev libeigen3-dev
+    - name: cmake
+      run: cmake . -DUSE_OPENMP=on
+    - name: make
+      run: make
+    - name: Run unit tests
+      run: make test
+    - name: Run with 2 processes
+      run: ./demos/spmv_demo && OMP_NUM_THREADS=2 mpirun -n 2 ./demos/spmv_demo

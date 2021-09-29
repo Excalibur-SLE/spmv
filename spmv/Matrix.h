@@ -122,9 +122,12 @@ public:
 
 private:
   // Storage for matrix
-  std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_local;
-  std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_remote;
-  std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> _mat_diagonal;
+  std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_local
+      = nullptr;
+  std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> _mat_remote
+      = nullptr;
+  std::shared_ptr<const Eigen::Matrix<T, Eigen::Dynamic, 1>> _mat_diagonal
+      = nullptr;
 #ifdef EIGEN_USE_MKL_ALL
   sparse_matrix_t _mat_local_mkl;
   sparse_matrix_t _mat_remote_mkl;
@@ -133,19 +136,19 @@ private:
 #endif
 
   // Column and Row maps: usually _row_map will not have ghosts.
-  std::shared_ptr<spmv::L2GMap> _col_map;
-  std::shared_ptr<spmv::L2GMap> _row_map;
+  std::shared_ptr<spmv::L2GMap> _col_map = nullptr;
+  std::shared_ptr<spmv::L2GMap> _row_map = nullptr;
 
   // Auxiliary data
-  int _nnz;
-  bool _symmetric;
+  int _nnz = 0;
+  bool _symmetric = false;
 
 #if defined(_OPENMP) || defined(_SYCL)
   struct ConflictMap
   {
-    int length;
-    int* pos;
-    short* vid;
+    int length = 0;
+    int* pos = nullptr;
+    short* vid = nullptr;
 
     ConflictMap(const int ncnfls) : length(ncnfls)
     {
@@ -160,30 +163,30 @@ private:
     }
   };
 
-  int _nthreads;
-  int _ncnfls;
-  ConflictMap* _cnfl_map;
-  int* _row_split;
-  int* _map_start;
-  int* _map_end;
-  T** _y_local;
+  int _nthreads = 1;
+  int _ncnfls = 0;
+  ConflictMap* _cnfl_map = nullptr;
+  int* _row_split = nullptr;
+  int* _map_start = nullptr;
+  int* _map_end = nullptr;
+  T** _y_local = nullptr;
 #endif
 
 #ifdef _SYCL
   // SYCL-specific auxiliary data
-  buffer<int>* _d_rowptr_local;
-  buffer<int>* _d_colind_local;
-  buffer<T>* _d_values_local;
-  buffer<int>* _d_rowptr_remote;
-  buffer<int>* _d_colind_remote;
-  buffer<T>* _d_values_remote;
-  buffer<T>* _d_diagonal;
-  buffer<int>* _d_row_split;
-  buffer<int>* _d_map_start;
-  buffer<int>* _d_map_end;
-  buffer<short>* _d_cnfl_vid;
-  buffer<int>* _d_cnfl_pos;
-  buffer<T, 2>* _d_y_local;
+  buffer<int>* _d_rowptr_local = nullptr;
+  buffer<int>* _d_colind_local = nullptr;
+  buffer<T>* _d_values_local = nullptr;
+  buffer<int>* _d_rowptr_remote = nullptr;
+  buffer<int>* _d_colind_remote = nullptr;
+  buffer<T>* _d_values_remote = nullptr;
+  buffer<T>* _d_diagonal = nullptr;
+  buffer<int>* _d_row_split = nullptr;
+  buffer<int>* _d_map_start = nullptr;
+  buffer<int>* _d_map_end = nullptr;
+  buffer<short>* _d_cnfl_vid = nullptr;
+  buffer<int>* _d_cnfl_pos = nullptr;
+  buffer<T, 2>* _d_y_local = nullptr;
 #endif
 
   // Private helper functions

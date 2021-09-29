@@ -13,8 +13,7 @@ using namespace spmv;
 //-----------------------------------------------------------------------------
 L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
                const std::vector<std::int64_t>& ghosts, CommunicationModel cm)
-    : _ghosts(ghosts), _comm(comm), _cm(cm), _req(nullptr), _send_buf(nullptr),
-      _recv_buf(nullptr)
+    : _ghosts(ghosts), _comm(comm), _cm(cm)
 {
   int mpi_size;
   MPI_Comm_size(comm, &mpi_size);

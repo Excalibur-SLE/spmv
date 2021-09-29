@@ -70,14 +70,8 @@ Matrix<T>::Matrix(
     std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
     std::shared_ptr<spmv::L2GMap> col_map,
     std::shared_ptr<spmv::L2GMap> row_map)
-    : _mat_local(mat), _mat_remote(nullptr), _mat_diagonal(nullptr),
-      _col_map(col_map), _row_map(row_map), _nnz(mat->nonZeros()),
-      _symmetric(false)
-#if defined(_OPENMP) || defined(_SYCL)
-      ,
-      _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
-      _map_start(nullptr), _map_end(nullptr), _y_local(nullptr)
-#endif // _OPENMP
+    : _mat_local(mat), _col_map(col_map), _row_map(row_map),
+      _nnz(mat->nonZeros())
 {
   // Assert overlapping is disabled in the column map
   if (col_map->overlapping())
@@ -88,24 +82,18 @@ Matrix<T>::Matrix(
 
 #ifdef _SYCL
   // Initialise SYCL buffers, ownership is passed to SYCL runtime
-  // auto property_list
-  //     = cl::sycl::property_list{cl::sycl::property::buffer::use_host_ptr()};
+  // Use the provided host pointer and do not allocate new data on the host
+  auto property_list
+      = cl::sycl::property_list{cl::sycl::property::buffer::use_host_ptr()};
   _d_rowptr_local = new sycl::buffer<int>(
-      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1));
+      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1),
+      property_list);
   _d_colind_local = new sycl::buffer<int>(
-      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()));
+      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()),
+      property_list);
   _d_values_local = new sycl::buffer<T>(_mat_local->valuePtr(),
-                                        sycl::range<1>(_mat_local->nonZeros()));
-  _d_rowptr_remote = nullptr;
-  _d_colind_remote = nullptr;
-  _d_values_remote = nullptr;
-  _d_row_split = nullptr;
-  _d_diagonal = nullptr;
-  _d_map_start = nullptr;
-  _d_map_end = nullptr;
-  _d_cnfl_vid = nullptr;
-  _d_cnfl_pos = nullptr;
-  _d_y_local = nullptr;
+                                        sycl::range<1>(_mat_local->nonZeros()),
+                                        property_list);
 #endif // _SYCL
 }
 //---------------------
@@ -115,14 +103,8 @@ Matrix<T>::Matrix(
     std::shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat_remote,
     std::shared_ptr<spmv::L2GMap> col_map,
     std::shared_ptr<spmv::L2GMap> row_map)
-    : _mat_local(mat_local), _mat_remote(mat_remote), _mat_diagonal(nullptr),
-      _col_map(col_map), _row_map(row_map),
-      _nnz(mat_local->nonZeros() + mat_remote->nonZeros()), _symmetric(false)
-#if defined(_OPENMP) || defined(_SYCL)
-      ,
-      _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
-      _map_start(nullptr), _map_end(nullptr), _y_local(nullptr)
-#endif // _OPENMP
+    : _mat_local(mat_local), _mat_remote(mat_remote), _col_map(col_map),
+      _row_map(row_map), _nnz(mat_local->nonZeros() + mat_remote->nonZeros())
 {
   // Assert overlapping is enabled in the column map
   if (!col_map->overlapping())
@@ -134,34 +116,30 @@ Matrix<T>::Matrix(
 
 #ifdef _SYCL
   // Initialise SYCL buffers, ownership is passed to SYCL runtime
+  // Use the provided host pointer and do not allocate new data on the host
+  auto property_list
+      = cl::sycl::property_list{cl::sycl::property::buffer::use_host_ptr()};
   _d_rowptr_local = new sycl::buffer<int>(
-      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1));
+      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1),
+      property_list);
   _d_colind_local = new sycl::buffer<int>(
-      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()));
+      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()),
+      property_list);
   _d_values_local = new sycl::buffer<T>(_mat_local->valuePtr(),
-                                        sycl::range<1>(_mat_local->nonZeros()));
+                                        sycl::range<1>(_mat_local->nonZeros()),
+                                        property_list);
   if (_mat_remote->nonZeros() > 0)
   {
     _d_rowptr_remote = new sycl::buffer<int>(
-        _mat_remote->outerIndexPtr(), sycl::range<1>(_mat_remote->rows() + 1));
+        _mat_remote->outerIndexPtr(), sycl::range<1>(_mat_remote->rows() + 1),
+        property_list);
     _d_colind_remote = new sycl::buffer<int>(
-        _mat_remote->innerIndexPtr(), sycl::range<1>(_mat_remote->nonZeros()));
+        _mat_remote->innerIndexPtr(), sycl::range<1>(_mat_remote->nonZeros()),
+        property_list);
     _d_values_remote = new sycl::buffer<T>(
-        _mat_remote->valuePtr(), sycl::range<1>(_mat_remote->nonZeros()));
+        _mat_remote->valuePtr(), sycl::range<1>(_mat_remote->nonZeros()),
+        property_list);
   }
-  else
-  {
-    _d_rowptr_remote = nullptr;
-    _d_colind_remote = nullptr;
-    _d_values_remote = nullptr;
-  }
-  _d_row_split = nullptr;
-  _d_diagonal = nullptr;
-  _d_map_start = nullptr;
-  _d_map_end = nullptr;
-  _d_cnfl_vid = nullptr;
-  _d_cnfl_pos = nullptr;
-  _d_y_local = nullptr;
 #endif // _SYCL
 }
 //---------------------
@@ -175,11 +153,6 @@ Matrix<T>::Matrix(
     : _mat_local(mat_local), _mat_remote(mat_remote),
       _mat_diagonal(mat_diagonal), _col_map(col_map), _row_map(row_map),
       _nnz(nnz_full), _symmetric(true)
-#if defined(_OPENMP) || defined(_SYCL)
-      ,
-      _nthreads(1), _cnfl_map(nullptr), _row_split(nullptr),
-      _map_start(nullptr), _map_end(nullptr), _y_local(nullptr)
-#endif // _OPENMP
 {
 #if defined(_OPENMP) || defined(_SYCL)
   _nthreads = get_num_threads();
@@ -188,42 +161,50 @@ Matrix<T>::Matrix(
 
 #ifdef _SYCL
   // Initialise SYCL buffers, ownership is passed to SYCL runtime
+  // Use the provided host pointer and do not allocate new data on the host
+  auto property_list
+      = cl::sycl::property_list{cl::sycl::property::buffer::use_host_ptr()};
   _d_rowptr_local = new sycl::buffer<int>(
-      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1));
+      _mat_local->outerIndexPtr(), sycl::range<1>(_mat_local->rows() + 1),
+      property_list);
   _d_colind_local = new sycl::buffer<int>(
-      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()));
+      _mat_local->innerIndexPtr(), sycl::range<1>(_mat_local->nonZeros()),
+      property_list);
   _d_values_local = new sycl::buffer<T>(_mat_local->valuePtr(),
-                                        sycl::range<1>(_mat_local->nonZeros()));
+                                        sycl::range<1>(_mat_local->nonZeros()),
+                                        property_list);
   if (_mat_remote->nonZeros() > 0)
   {
     _d_rowptr_remote = new sycl::buffer<int>(
-        _mat_remote->outerIndexPtr(), sycl::range<1>(_mat_remote->rows() + 1));
+        _mat_remote->outerIndexPtr(), sycl::range<1>(_mat_remote->rows() + 1),
+        property_list);
     _d_colind_remote = new sycl::buffer<int>(
-        _mat_remote->innerIndexPtr(), sycl::range<1>(_mat_remote->nonZeros()));
+        _mat_remote->innerIndexPtr(), sycl::range<1>(_mat_remote->nonZeros()),
+        property_list);
     _d_values_remote = new sycl::buffer<T>(
-        _mat_remote->valuePtr(), sycl::range<1>(_mat_remote->nonZeros()));
+        _mat_remote->valuePtr(), sycl::range<1>(_mat_remote->nonZeros()),
+        property_list);
   }
-  else
-  {
-    _d_rowptr_remote = nullptr;
-    _d_colind_remote = nullptr;
-    _d_values_remote = nullptr;
-  }
-  _d_diagonal = new sycl::buffer<T>(_mat_diagonal->data(),
-                                    sycl::range<1>(_mat_local->rows()));
-  _d_row_split
-      = new sycl::buffer<int>(_row_split, sycl::range<1>(_nthreads + 1));
+  _d_diagonal = new sycl::buffer<T>(
+      _mat_diagonal->data(), sycl::range<1>(_mat_local->rows()), property_list);
+  _d_row_split = new sycl::buffer<int>(
+      _row_split, sycl::range<1>(_nthreads + 1), property_list);
   _d_map_start = new sycl::buffer<int>(
-      _map_start, sycl::range<1>{static_cast<size_t>(_nthreads)});
+      _map_start, sycl::range<1>{static_cast<size_t>(_nthreads)},
+      property_list);
   _d_map_end = new sycl::buffer<int>(
-      _map_end, sycl::range<1>{static_cast<size_t>(_nthreads)});
+      _map_end, sycl::range<1>{static_cast<size_t>(_nthreads)}, property_list);
   _d_cnfl_vid = new sycl::buffer<short>(
-      _cnfl_map->vid, sycl::range<1>{static_cast<size_t>(_ncnfls)});
+      _cnfl_map->vid, sycl::range<1>{static_cast<size_t>(_ncnfls)},
+      property_list);
   _d_cnfl_pos = new sycl::buffer<int>(
-      _cnfl_map->pos, sycl::range<1>{static_cast<size_t>(_ncnfls)});
+      _cnfl_map->pos, sycl::range<1>{static_cast<size_t>(_ncnfls)},
+      property_list);
   _d_y_local = new sycl::buffer<T, 2>(
-      &_y_local[0][0], sycl::range<2>{static_cast<size_t>(_nthreads),
-                                      static_cast<size_t>(_mat_local->rows())});
+      &_y_local[0][0],
+      sycl::range<2>{static_cast<size_t>(_nthreads),
+                     static_cast<size_t>(_mat_local->rows())},
+      property_list);
 #endif // _SYCL
 }
 //---------------------

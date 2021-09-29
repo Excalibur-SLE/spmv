@@ -89,36 +89,37 @@ public:
 
 private:
   // Ownership ranges for all processes on global comm
-  std::vector<std::int64_t> _ranges;
+  std::vector<std::int64_t> _ranges = {};
 
   // Cached mpi rank on global comm
   // Local range is _ranges[_mpi_rank] -> _ranges[_mpi_rank + 1]
-  std::int32_t _mpi_rank;
+  std::int32_t _mpi_rank = -1;
 
   // Forward and reverse maps for ghosts
-  std::map<std::int64_t, std::int32_t> _global_to_local;
-  std::vector<std::int64_t> _ghosts;
+  std::map<std::int64_t, std::int32_t> _global_to_local = {};
+  std::vector<std::int64_t> _ghosts = {};
 
   // Indices, counts and offsets for communication
-  std::vector<std::int32_t> _indexbuf;
-  std::vector<std::int32_t> _send_count;
-  std::vector<std::int32_t> _recv_count;
-  std::vector<std::int32_t> _send_offset;
-  std::vector<std::int32_t> _recv_offset;
-  std::vector<std::int32_t> _recv_win_offset;
+  std::vector<std::int32_t> _indexbuf = {};
+  std::vector<std::int32_t> _send_count = {};
+  std::vector<std::int32_t> _recv_count = {};
+  std::vector<std::int32_t> _send_offset = {};
+  std::vector<std::int32_t> _recv_offset = {};
+  std::vector<std::int32_t> _recv_win_offset = {};
 
   // Ranks of my neighbours
-  std::vector<int> _neighbours;
+  std::vector<int> _neighbours = {};
   // Global communicator
-  MPI_Comm _comm;
+  MPI_Comm _comm = MPI_COMM_NULL;
   // Neighbourhood communicator
-  MPI_Comm _neighbour_comm;
+  MPI_Comm _neighbour_comm = MPI_COMM_NULL;
   // Underlying MPI comunnication model
-  CommunicationModel _cm;
+  CommunicationModel _cm = CommunicationModel::collective_blocking;
   // MPI handle and intermediate buffers used to manage non-blocking
   // communication
-  mutable MPI_Request* _req;
-  mutable void *_send_buf, *_recv_buf;
+  mutable MPI_Request* _req = nullptr;
+  mutable void* _send_buf = nullptr;
+  mutable void* _recv_buf = nullptr;
 
 private:
   // Private functions

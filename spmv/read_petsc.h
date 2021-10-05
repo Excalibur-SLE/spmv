@@ -22,10 +22,9 @@ class L2GMap;
 /// @param filename Filename
 /// @param symmetric Indicates whether the matrix is symmetric
 /// @return spmv::Matrix<double> Matrix
-Matrix<double> read_petsc_binary(MPI_Comm comm, std::string filename,
-                                 bool symmetric = false,
-                                 CommunicationModel cm
-                                 = CommunicationModel::collective_blocking);
+Matrix<double> read_petsc_binary_matrix(
+    MPI_Comm comm, std::string filename, bool symmetric = false,
+    CommunicationModel cm = CommunicationModel::collective_blocking);
 
 /// @brief Read a binary PETSc vector file and distribute.
 ///

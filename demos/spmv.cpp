@@ -29,7 +29,7 @@ void matvec_main()
   spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 2000000);
 
   // Or read file created with "-ksp_view_mat binary" option
-  //  spmv::Matrix A = spmv::read_petsc_binary(MPI_COMM_WORLD, "A4.dat");
+  //  spmv::Matrix A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, "A4.dat");
 
   std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
 

@@ -24,7 +24,7 @@ void restrict_main()
 
   auto timer_start = std::chrono::system_clock::now();
   // Read in a PETSc binary format matrix
-  auto R = spmv::read_petsc_binary(MPI_COMM_WORLD, "R4.dat");
+  auto R = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, "R4.dat");
   auto q = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, "b4.dat");
 
   // Get local and global sizes

@@ -28,21 +28,31 @@ int cg_main(int argc, char** argv)
 
   auto timer_start = std::chrono::system_clock::now();
 
-  std::string argv1;
-  if (argc == 2)
+  std::string argv1, argv2;
+  if (argc == 3)
+  {
     argv1 = argv[1];
+    argv2 = argv[2];
+  }
   else
-    throw std::runtime_error("Use with filename");
+  {
+    throw std::runtime_error("Use: ./cg_demo <matrix_file> <vector_file>");
+  }
 
   sycl::queue queue(sycl::default_selector{});
 
-  auto A = spmv::read_petsc_binary(MPI_COMM_WORLD, argv1);
-  std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
+  // Read matrix
+  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
 
-  // auto b_tmp = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
+  // Read vector
+  auto b_tmp = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
   auto b = sycl::malloc_shared<double>(A.rows(), queue);
+  // Copy data from Eigen vector to SYCL buffer
+  for (int i = 0; i < A.rows(); i++)
+    b[i] = b_tmp(i);
 
   // Get local and global sizes
+  std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
   std::int64_t N = l2g->global_size();
 
   if (mpi_rank == 0)
@@ -51,7 +61,7 @@ int cg_main(int argc, char** argv)
   auto timer_end = std::chrono::system_clock::now();
   timings["0.ReadPetsc"] += (timer_end - timer_start);
 
-  int max_its = 10000;
+  int max_its = 100;
   double rtol = 1e-10;
 
   // Turn on profiling for solver only
@@ -63,20 +73,26 @@ int cg_main(int argc, char** argv)
   MPI_Pcontrol(0);
 
   // Get norm on local part of vector
-  double xnorm = spmv::squared_norm(queue, N, x);
+  double xnorm = spmv::squared_norm(queue, l2g->local_size(), x);
   double xnorm_sum;
   MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
   // Test result
-  // l2g->update(x);
-  // Eigen::VectorXd r = A * x - b;
-  // double rnorm = r.squaredNorm();
-  // double rnorm_sum;
-  // MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  auto y = sycl::malloc_shared<double>(A.rows(), queue);
+  l2g->update(x);
+  A.mult(queue, x, y);
+  Eigen::VectorXd y_tmp(A.rows());
+  // Copy data from Eigen vector to SYCL buffer
+  for (int i = 0; i < A.rows(); i++)
+    y_tmp(i) = y[i];
+  Eigen::VectorXd r = y_tmp - b_tmp;
+  double rnorm = r.squaredNorm();
+  double rnorm_sum;
+  MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
   {
-    //    std::cout << "r.norm = " << std::sqrt(rnorm_sum) << "\n";
+    std::cout << "r.norm = " << std::sqrt(rnorm_sum) << "\n";
     std::cout << "x.norm = " << std::sqrt(xnorm_sum) << " in " << num_its
               << " iterations\n";
     std::cout << "\nTimings (" << mpi_size

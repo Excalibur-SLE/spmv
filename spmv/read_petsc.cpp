@@ -30,10 +30,10 @@ std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
   return ranges;
 }
 //-----------------------------------------------------------------------------
-spmv::Matrix<double> spmv::read_petsc_binary(MPI_Comm comm,
-                                             std::string filename,
-                                             bool symmetric,
-                                             CommunicationModel cm)
+spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
+                                                    std::string filename,
+                                                    bool symmetric,
+                                                    CommunicationModel cm)
 {
   auto A = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
   auto A_remote
@@ -78,7 +78,7 @@ spmv::Matrix<double> spmv::read_petsc_binary(MPI_Comm comm,
   col_ranges = owner_ranges(mpi_size, ncols);
 
   if (mpi_rank == 0)
-    std::cout << "Read file: " << filename << ": " << nrows << "x" << ncols
+    std::cout << "Read matrix file: " << filename << ": " << nrows << "x" << ncols
               << " = " << nnz_tot << "\n";
 
   nrows_local = row_ranges[mpi_rank + 1] - row_ranges[mpi_rank];

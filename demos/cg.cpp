@@ -28,19 +28,25 @@ int cg_main(int argc, char** argv)
 
   auto timer_start = std::chrono::system_clock::now();
 
-  std::string argv1;
-  if (argc == 2)
+  std::string argv1, argv2;
+  if (argc == 3)
+  {
     argv1 = argv[1];
+    argv2 = argv[2];
+  }
   else
-    throw std::runtime_error("Use with filename");
+  {
+    throw std::runtime_error("Use: ./cg_demo <matrix_file> <vector_file>");
+  }
 
-  auto A
-      = spmv::read_petsc_binary(MPI_COMM_WORLD, "petsc_mat" + argv1 + ".dat");
-  std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
+  // Read matrix
+  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
 
-  auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD,
-                                          "petsc_vec" + argv1 + ".dat");
+  // Read vector
+  auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
+
   // Get local and global sizes
+  std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
   std::int64_t N = l2g->global_size();
 
   if (mpi_rank == 0)
@@ -49,7 +55,7 @@ int cg_main(int argc, char** argv)
   auto timer_end = std::chrono::system_clock::now();
   timings["0.ReadPetsc"] += (timer_end - timer_start);
 
-  int max_its = 10000;
+  int max_its = 100;
   double rtol = 1e-10;
 
   // Turn on profiling for solver only

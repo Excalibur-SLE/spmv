@@ -40,6 +40,9 @@ int cg_main(int argc, char** argv)
   }
 
   sycl::queue queue(sycl::default_selector{});
+  auto device = queue.get_device();
+  std::cout << "\n[INFO]: MPI rank " << mpi_rank << " running on "
+            << device.get_info<sycl::info::device::name>() << std::endl;
 
   // Read matrix
   auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);

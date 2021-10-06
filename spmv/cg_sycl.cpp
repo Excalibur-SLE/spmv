@@ -23,32 +23,32 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, sycl::queue& q,
     throw std::runtime_error("spmv::cg - Error: A.row_map() has ghost entries");
 
   int M = row_l2g->local_size();
-
-  // if (b.rows() != M)
-  //   throw std::runtime_error("spmv::cg - Error: b.rows() != A.rows()");
+  int N_padded = col_l2g->local_size() + col_l2g->num_ghosts();
 
   // Allocate auxiliary vectors
   auto r = sycl::malloc_shared<double>(M, q);
+  // This buffer is reduced by the host during the SpMV operation so it needs to
+  // be shared between host and device
   auto y = sycl::malloc_shared<double>(M, q);
-  auto p = sycl::malloc_shared<double>(
-      col_l2g->local_size() + col_l2g->num_ghosts(), q);
-  auto x = sycl::malloc_shared<double>(
-      col_l2g->local_size() + col_l2g->num_ghosts(), q);
+  // This buffer is used by MPI so it needs to be shared between host and device
+  auto p = sycl::malloc_shared<double>(N_padded, q);
+  // This buffer is returned to the user so it needs to be shared between host
+  // and device
+  auto x = sycl::malloc_shared<double>(N_padded, q);
 
-  // prefetch + mem_advise
-  q.memset(x, 0, M * sizeof(double));
-  q.memcpy(r, b, M * sizeof(double));
-  q.memcpy(p, b, M * sizeof(double));
-  q.wait();
+  // Initialise vectors
+  q.memset(p, 0, N_padded * sizeof(double));
+  q.memset(x, 0, N_padded * sizeof(double));
+  q.memcpy(r, b, M * sizeof(double)).wait(); // b - A * x0
+  q.memcpy(p, b, M * sizeof(double)).wait();
 
-  const double rnorm0_local = squared_norm(q, M, r);
+  double rnorm = squared_norm(q, M, r);
   double rnorm0;
-  MPI_Allreduce(&rnorm0_local, &rnorm0, 1, MPI_DOUBLE, MPI_SUM, comm);
+  MPI_Allreduce(&rnorm, &rnorm0, 1, MPI_DOUBLE, MPI_SUM, comm);
 
-  //  double rnorm_old = rnorm0;
   // Iterations of CG
   const double rtol2 = rtol * rtol;
-  double rnorm = rnorm0;
+  double rnorm_old = rnorm0;
   int k = 0;
   while (k < kmax)
   {
@@ -56,45 +56,42 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, sycl::queue& q,
 
     // y = A.p
     col_l2g->update(p);
+    q.memset(y, 0, M * sizeof(double)).wait();
     A.mult(q, p, y);
 
     // Calculate alpha = r.r/p.y
     const double pdoty_local = dot(q, M, p, y);
     double pdoty;
     MPI_Allreduce(&pdoty_local, &pdoty, 1, MPI_DOUBLE, MPI_SUM, comm);
-    const double alpha = rnorm / pdoty;
+    const double alpha = rnorm_old / pdoty;
 
-    // // Update x and r
-    // // x = x + alpha*p
+    // Update x and r
+    // x = x + alpha*p
     // axpy(q, M, alpha, p, x, x);
-
-    // // r = r - alpha*y
+    // // r = r - alpha*y x y r
     // axpy(q, M, -alpha, y, r, r);
     // q.wait();
-
-    fused_update(q, M, alpha, p, x, y, r);
-    q.wait();
+    fused_update(q, M, alpha, p, x, y, r).wait();
 
     // Update rnorm
-    const double rnorm_new_local = squared_norm(q, M, r);
+    rnorm = squared_norm(q, M, r);
     double rnorm_new;
-    MPI_Allreduce(&rnorm_new_local, &rnorm_new, 1, MPI_DOUBLE, MPI_SUM, comm);
-    const double beta = rnorm_new / rnorm;
-    rnorm = rnorm_new;
-
-    if (rnorm / rnorm0 < rtol2)
-      break;
+    MPI_Allreduce(&rnorm, &rnorm_new, 1, MPI_DOUBLE, MPI_SUM, comm);
+    double beta = rnorm_new / rnorm_old;
+    rnorm_old = rnorm_new;
 
     // Update p.
-    // p = r + beta*p
+    // p = r + beta*p    x y r
     axpy(q, M, beta, p, r, p).wait();
+
+    if (rnorm_new / rnorm0 < rtol2)
+      break;
   }
 
   sycl::free(r, q);
   sycl::free(y, q);
   sycl::free(p, q);
-  // sycl::free(x, q);
 
-  return std::make_tuple(x, k);
+  return std::make_tuple(std::move(x), k);
 }
 //-----------------------------------------------------------------------------

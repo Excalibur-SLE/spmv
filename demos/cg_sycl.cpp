@@ -1,8 +1,6 @@
 // Copyright (C) 2018-2020 Chris Richardson (chris@bpi.cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -39,13 +37,14 @@ int cg_main(int argc, char** argv)
     throw std::runtime_error("Use: ./cg_demo <matrix_file> <vector_file>");
   }
 
-  sycl::queue queue(sycl::default_selector{});
+  sycl::queue queue(sycl::cpu_selector{});
   auto device = queue.get_device();
   std::cout << "\n[INFO]: MPI rank " << mpi_rank << " running on "
             << device.get_info<sycl::info::device::name>() << std::endl;
 
   // Read matrix
   auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
+  // A.tune(queue);
 
   // Read vector
   auto b_tmp = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
@@ -64,7 +63,7 @@ int cg_main(int argc, char** argv)
   auto timer_end = std::chrono::system_clock::now();
   timings["0.ReadPetsc"] += (timer_end - timer_start);
 
-  int max_its = 100;
+  int max_its = 10;
   double rtol = 1e-10;
 
   // Turn on profiling for solver only
@@ -76,20 +75,19 @@ int cg_main(int argc, char** argv)
   MPI_Pcontrol(0);
 
   // Get norm on local part of vector
-  double xnorm = spmv::squared_norm(queue, l2g->local_size(), x);
+  double xnorm;
+  spmv::squared_norm(queue, l2g->local_size(), x, &xnorm).wait();
   double xnorm_sum;
   MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
   // Test result
   auto y = sycl::malloc_shared<double>(A.rows(), queue);
   l2g->update(x);
-  A.mult(queue, x, y);
-  Eigen::VectorXd y_tmp(A.rows());
-  // Copy data from Eigen vector to SYCL buffer
-  for (int i = 0; i < A.rows(); i++)
-    y_tmp(i) = y[i];
-  Eigen::VectorXd r = y_tmp - b_tmp;
-  double rnorm = r.squaredNorm();
+  A.mult(queue, x, y).wait();
+  auto r = sycl::malloc_shared<double>(A.rows(), queue);
+  spmv::axpy(queue, A.rows(), -1.0, b, y, r).wait();
+  double rnorm;
+  spmv::squared_norm(queue, l2g->local_size(), r, &rnorm).wait();
   double rnorm_sum;
   MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
@@ -125,6 +123,7 @@ int cg_main(int argc, char** argv)
   if (mpi_rank == 0)
     std::cout << "----------------------------\n";
 
+  cl::sycl::free(x, queue);
   return 0;
 }
 //-----------------------------------------------------------------------------

@@ -13,7 +13,7 @@
 #include <spmv/cg.h>
 #include <spmv/read_petsc.h>
 
-int cg_main(int argc, char** argv)
+void cg_main(int argc, char** argv)
 {
   // Turn off profiling
   MPI_Pcontrol(0);
@@ -109,8 +109,6 @@ int cg_main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout << "----------------------------\n";
-
-  return 0;
 }
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)

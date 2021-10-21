@@ -50,17 +50,10 @@ static void test_spmv(bool symmetric, sycl::queue& queue)
   const int NNZ = 15;
   int rowptr[N + 1] = {0, 3, 6, 9, 13, 15};
 
-  int colind[NNZ] = {0, 1,    3,
-                     0, 1,    3,
-                           2, 3, 4,
-                     0, 1, 2, 3,
-                           2,    4};
+  int colind[NNZ] = {0, 1, 3, 0, 1, 3, 2, 3, 4, 0, 1, 2, 3, 2, 4};
 
-  double values[NNZ] = { 1.0, -2.0,      -3.0,
-                        -2.0,  5.0,       4.0,
-                                     6.0, 4.0, -4.0,
-                        -3.0,  4.0,  4.0, 8.0,
-                                    -4.0,       8.0};
+  double values[NNZ] = {1.0,  -2.0, -3.0, -2.0, 5.0, 4.0,  6.0, 4.0,
+                        -4.0, -3.0, 4.0,  4.0,  8.0, -4.0, 8.0};
 
   // Define a global input vector
   Eigen::VectorXd x(N);
@@ -142,11 +135,12 @@ static void test_spmv(bool symmetric, sycl::queue& queue)
   auto x_local = sycl::malloc_shared<double>(
       l2g->local_size() + l2g->num_ghosts(), queue);
   // Initialize from global vector
-  memcpy(x_local, x.data() + row_start, ncols_local * sizeof(double));
+  queue.memcpy(x_local, x.data() + row_start, ncols_local * sizeof(double))
+      .wait();
 
   // Compute SpMV
   l2g->update(x_local);
-  A->mult(queue, x_local, y_local);
+  A->mult(queue, x_local, y_local).wait();
 
   Eigen::Map<Eigen::VectorXd> y_local_tmp(y_local, nrows_local);
   double norm = y_local_tmp.squaredNorm();
@@ -155,6 +149,8 @@ static void test_spmv(bool symmetric, sycl::queue& queue)
 
   // Cleanup
   delete A;
+  sycl::free(y_local, queue);
+  sycl::free(x_local, queue);
 
   if (essentially_equal(norm_sum, norm_ref,
                         std::numeric_limits<double>::epsilon()))
@@ -187,7 +183,7 @@ int main(int argc, char** argv)
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
   sycl::queue cpu_queue(sycl::cpu_selector{});
-  sycl::queue gpu_queue(sycl::cpu_selector{});
+  sycl::queue gpu_queue(sycl::gpu_selector{});
 
   bool symmetric;
   if (mpi_rank == 0)
@@ -205,7 +201,7 @@ int main(int argc, char** argv)
   symmetric = true;
   test_spmv(symmetric, cpu_queue);
   if (mpi_rank == 0)
-    std::cout << "Running vanilla SpMV on GPU... " << std::endl;
+    std::cout << "Running symmetric SpMV on GPU... " << std::endl;
   test_spmv(symmetric, gpu_queue);
 
   MPI_Finalize();

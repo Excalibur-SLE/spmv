@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(PROJECT_NAME spmv)
 set(PACKAGE_VERSION 1.0)
-project(${PROJECT_NAME} VERSION ${PACKAGE_VERSION} LANGUAGES CXX)
+project(${PROJECT_NAME} VERSION ${PACKAGE_VERSION} LANGUAGES CXX C)
 
 # Set CMake behavior
 cmake_policy(SET CMP0004 NEW)
@@ -16,10 +16,11 @@ set(CMAKE_SKIP_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-find_package(MPI REQUIRED)
+find_package(MPI REQUIRED COMPONENTS C CXX)
 
 option(USE_OPENMP "Use OpenMP for shared-memory parallelization" OFF)
 option(USE_DPCPP "Use DPC++ for shared-memory parallelization" OFF)
+option(USE_HIPSYCL "Use hipSYCL for shared-memory parallelization" OFF)
 option(USE_MKL_SEQUENTIAL "Use sequential (non-threaded) Intel MKL to accelerate SpMV kernels whenever possible" OFF)
 option(USE_MKL_PARALLEL "Use threaded Intel MKL to accelerate SpMV kernels whenever possible" OFF)
 
@@ -42,18 +43,26 @@ if(USE_OPENMP)
 endif()
 
 if(USE_DPCPP)
-  if(DEFINED ENV{ONEAPI_ROOT})
-    message(STATUS "Using DPC++ toolchain in ${ONEAPI_ROOT}")
-  else()
-    message(FATAL_ERROR "Please set ONEAPI_ROOT using the vendor-provided script to enable use of the DPC++ toolchain.")
-  endif()
-  # Force the C++ compiler to be dpcpp
-  set(CMAKE_CXX_COMPILER dpcpp)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_SYCL")
-  if (CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl")
-    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl-targets=spir64_x86_64-unknown-unknown-sycldevice")
-  endif()
+  # if(DEFINED ENV{ONEAPI_ROOT})
+  #   message(STATUS "Using DPC++ toolchain in ${ONEAPI_ROOT}")
+  # else()
+  #   message(FATAL_ERROR "Please set ONEAPI_ROOT using the vendor-provided script to enable use of the DPC++ toolchain.")
+  # endif()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_SYCL -D_DPCPP")
+  # Builds for GPU and CPU devices in ahead of time mode
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl -sycl-std=2020 -fsycl-unnamed-lambda")
+  # Enable AOT compilation
+  # x86_64 CPUs
+  #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl-targets=spir64_x86_64-unknown-unknown-sycldevice")
+  # Intel GPUs
+  #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl-targets=spir64_gen-unknown-unknown-sycldevice")
+endif()
+
+if(USE_HIPSYCL)
+  find_package(hipSYCL CONFIG REQUIRED)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_SYCL -D_HIPSYCL")
+  # hipSYCL
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-cuda-version -Wno-unknown-attributes")
 endif()
 
 # Can use imported target BLAS::BLAS for version >= 3.18
@@ -74,7 +83,7 @@ if(USE_MKL_PARALLEL)
   endif()
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wnull-dereference")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DEIGEN_MAX_ALIGN_BYTES=32")
 
 add_subdirectory(spmv)

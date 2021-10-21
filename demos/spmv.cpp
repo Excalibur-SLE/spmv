@@ -13,12 +13,22 @@
 #include <spmv/Matrix.h>
 #include <spmv/read_petsc.h>
 
-void matvec_main()
+void spmv_main(int argc, char** argv)
 {
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   int mpi_size;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+
+  std::string argv1;
+  if (argc == 2)
+  {
+    argv1 = argv[1];
+  }
+  else
+  {
+    throw std::runtime_error("Use: ./spmv_demo <matrix_file>");
+  }
 
   // Keep list of timings
   std::map<std::string, std::chrono::duration<double>> timings;
@@ -26,10 +36,10 @@ void matvec_main()
   auto timer_start = std::chrono::system_clock::now();
 
   // Either create a simple 1D stencil
-  spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 2000000);
+  // spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 40000000);
 
   // Or read file created with "-ksp_view_mat binary" option
-  //  spmv::Matrix A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, "A4.dat");
+  spmv::Matrix A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
 
   std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
 
@@ -61,12 +71,13 @@ void matvec_main()
   timings["1.VecCreate"] += (timer_end - timer_start);
 
   // Apply matrix a few times
-  int n_apply = 1000;
+  int n_apply = 10;
   if (mpi_rank == 0)
     std::cout << "Applying matrix " << n_apply << " times\n";
 
   // Temporary variable
   Eigen::VectorXd q(M);
+  q = A.mult(psp);
   for (int i = 0; i < n_apply; ++i)
   {
     timer_start = std::chrono::system_clock::now();
@@ -136,7 +147,7 @@ int main(int argc, char** argv)
   MPI_Init(&argc, &argv);
 #endif
 
-  matvec_main();
+  spmv_main(argc, argv);
 
   MPI_Finalize();
   return 0;

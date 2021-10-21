@@ -5,7 +5,6 @@
 #include "cg_sycl.h"
 #include "L2GMap.h"
 #include "Matrix.h"
-#include <iomanip>
 
 //-----------------------------------------------------------------------------
 std::tuple<double*, int> spmv::cg(MPI_Comm comm, sycl::queue& q,
@@ -36,13 +35,19 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, sycl::queue& q,
   // and device
   auto x = sycl::malloc_shared<double>(N_padded, q);
 
-  // Initialise vectors
-  q.memset(p, 0, N_padded * sizeof(double));
-  q.memset(x, 0, N_padded * sizeof(double));
-  q.memcpy(r, b, M * sizeof(double)).wait(); // b - A * x0
-  q.memcpy(p, b, M * sizeof(double)).wait();
+  q.prefetch(r, M * sizeof(double));
+  q.prefetch(y, M * sizeof(double));
+  q.prefetch(p, N_padded * sizeof(double));
+  q.prefetch(x, N_padded * sizeof(double));
 
-  double rnorm = squared_norm(q, M, r);
+  // Initialise vectors
+  q.memset(x, 0, N_padded * sizeof(double));
+  q.memcpy(r, b, M * sizeof(double)).wait_and_throw(); // b - A * x0
+  q.memcpy(p, b, M * sizeof(double)).wait_and_throw();
+
+  sycl::event event;
+  double rnorm;
+  squared_norm(q, M, r, &rnorm).wait_and_throw();
   double rnorm0;
   MPI_Allreduce(&rnorm, &rnorm0, 1, MPI_DOUBLE, MPI_SUM, comm);
 
@@ -56,11 +61,11 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, sycl::queue& q,
 
     // y = A.p
     col_l2g->update(p);
-    q.memset(y, 0, M * sizeof(double)).wait();
-    A.mult(q, p, y);
+    event = A.mult(q, p, y);
 
     // Calculate alpha = r.r/p.y
-    const double pdoty_local = dot(q, M, p, y);
+    double pdoty_local;
+    dot(q, M, p, y, &pdoty_local, {event}).wait_and_throw();
     double pdoty;
     MPI_Allreduce(&pdoty_local, &pdoty, 1, MPI_DOUBLE, MPI_SUM, comm);
     const double alpha = rnorm_old / pdoty;
@@ -71,10 +76,10 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, sycl::queue& q,
     // // r = r - alpha*y x y r
     // axpy(q, M, -alpha, y, r, r);
     // q.wait();
-    fused_update(q, M, alpha, p, x, y, r).wait();
+    event = fused_update(q, M, alpha, p, x, y, r);
 
     // Update rnorm
-    rnorm = squared_norm(q, M, r);
+    squared_norm(q, M, r, &rnorm, {event}).wait_and_throw();
     double rnorm_new;
     MPI_Allreduce(&rnorm, &rnorm_new, 1, MPI_DOUBLE, MPI_SUM, comm);
     double beta = rnorm_new / rnorm_old;
@@ -82,7 +87,7 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, sycl::queue& q,
 
     // Update p.
     // p = r + beta*p    x y r
-    axpy(q, M, beta, p, r, p).wait();
+    axpy(q, M, beta, p, r, p).wait_and_throw();
 
     if (rnorm_new / rnorm0 < rtol2)
       break;

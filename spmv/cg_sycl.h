@@ -7,7 +7,7 @@
 #include <complex>
 #include <mpi.h>
 
-namespace sycl = sycl;
+namespace sycl = cl::sycl;
 
 namespace spmv
 {
@@ -27,16 +27,20 @@ class Matrix;
 /// Output
 /// @param r Output vector
 template <typename T>
-sycl::event axpy(sycl::queue& q, size_t N, T alpha, const T* x, const T* y,
-                 T* r)
+sycl::event axpy(sycl::queue& queue, size_t N, T alpha, const T* x, const T* y,
+                 T* r, const std::vector<sycl::event>& dependencies = {})
 {
-  sycl::event event = q.submit([&](sycl::handler& cgh) {
-    cgh.parallel_for<class aXpY>(sycl::range<1>{N}, [=](sycl::item<1> it) {
-      int i = it.get_id(0);
-      r[i] = alpha * x[i] + y[i];
-    });
-  });
-
+  sycl::event event = queue.submit(
+      [&](sycl::handler& cgh)
+      {
+        cgh.depends_on(dependencies);
+        cgh.parallel_for<>(sycl::range<1>{N},
+                           [=](sycl::item<1> item) {
+                             int i = item.get_id(0);
+                             r[i] = alpha * x[i] + y[i];
+                           });
+      });
+  
   return event;
 }
 
@@ -51,58 +55,80 @@ sycl::event axpy(sycl::queue& q, size_t N, T alpha, const T* x, const T* y,
 /// Output
 /// @return Dot product of vectors x and y
 template <typename T>
-T dot(sycl::queue& q, size_t N, const T* x, const T* y)
+sycl::event dot(sycl::queue& queue, size_t N, const T* x, const T* y, T* result,
+                const std::vector<sycl::event>& dependencies = {})
 {
   if constexpr (std::is_same<T, std::complex<double>>::value
                 or std::is_same<T, std::complex<float>>::value)
     throw std::runtime_error("Complex support");
 
-  auto sum = sycl::malloc_shared<T>(1, q);
-  sum[0] = 0.0;
-
-  const int M = 32;
-  const int mod = N % M;
-  const int N_padded = (mod == 0) ? N : N + M - mod;
+  sycl::event event;
+  auto sum = sycl::malloc_shared<T>(1, queue);
 
   // Compute a dot-product by reducing all computed values using standard plus
   // functor
-  q.submit([&](sycl::handler& cgh) {
-    cgh.parallel_for<class dot_product>(
-        sycl::nd_range<1>{N_padded, M},
-        sycl::ONEAPI::reduction(sum, 0.0, std::plus<T>()),
-        [=](sycl::nd_item<1> it, auto& sum) {
-          int i = it.get_global_id(0);
-          sum += (i < N_padded) ? (x[i] * y[i]) : 0.0;
-        });
-  });
-  q.wait();
+  auto device = queue.get_device();
+  if (device.is_gpu())
+  {
+    const int M = 32;
+    const int mod = N % M;
+    const int N_padded = (mod == 0) ? N : N + M - mod;
 
-  T s = sum[0];
-  sycl::free(sum, q);
-  return s;
-}
+    // Compute a dot-product by reducing all computed values using standard plus
+    // functor
+    queue.submit([&](sycl::handler& cgh) {
+        cgh.depends_on(dependencies);
+	cgh.parallel_for<>(sycl::nd_range<1>{N_padded, M},
+			   sycl::reduction(sum, std::plus<T>()),
+			   [=](sycl::nd_item<1> item, auto& sum) {
+			     int i = item.get_global_id(0);
+			     sum.combine((i < N_padded) ? (x[i] * y[i]) : 0.0);
+			   });
+      }).wait_and_throw();
+  }
+  else
+  {
+    queue.submit([&](sycl::handler& cgh) {
+        cgh.depends_on(dependencies);
+	cgh.parallel_for<>(sycl::nd_range<1>{N, 1},
+			   sycl::reduction(sum, std::plus<T>()),
+			   [=](sycl::nd_item<1> item, auto& sum) {
+			     int i = item.get_global_id(0);
+			     sum.combine(x[i] * y[i]);
+			   });
+      }).wait_and_throw();
+  }
 
-template <typename T>
-double squared_norm(sycl::queue& q, size_t N, const T* x)
-{
-  return dot(q, N, x, x);
-}
-
-template <typename T>
-sycl::event fused_update(sycl::queue& q, size_t N, T alpha, const T* p, T* x,
-                         const T* y, T* r)
-{
-  sycl::event event = q.submit([&](sycl::handler& cgh) {
-    cgh.parallel_for<class update>(sycl::range<1>{N}, [=](sycl::item<1> it) {
-      int i = it.get_id(0);
-      x[i] += alpha * p[i];
-      r[i] += -alpha * y[i];
-    });
-  });
-
+  *result = sum[0];
+  sycl::free(sum, queue);
   return event;
 }
 
+template <typename T>
+sycl::event squared_norm(sycl::queue& queue, size_t N, const T* x, T* result,
+                         const std::vector<sycl::event>& dependencies = {})
+{
+  return dot(queue, N, x, x, result, dependencies);
+}
+
+template <typename T>
+sycl::event fused_update(sycl::queue& queue, size_t N, T alpha, const T* p,
+                         T* x, const T* y, T* r,
+                         const std::vector<sycl::event>& dependencies = {})
+{
+  sycl::event event = queue.submit([&](sycl::handler& cgh) {
+      cgh.depends_on(dependencies);
+      cgh.parallel_for<>(sycl::range<1>{N},
+			 [=](sycl::item<1> it) {
+			   int i = it.get_id(0);
+			   x[i] += alpha * p[i];
+			   r[i] += -alpha * y[i];
+			 });
+    });
+  
+  return event;
+ }
+ 
 /// @brief Solve **A.x=b** iteratively with Conjugate Gradient in SYCL
 ///
 /// Input

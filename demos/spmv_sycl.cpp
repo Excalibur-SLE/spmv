@@ -11,14 +11,25 @@
 #include "CreateA.h"
 #include <spmv/L2GMap.h>
 #include <spmv/Matrix.h>
+#include <spmv/cg_sycl.h>
 #include <spmv/read_petsc.h>
 
-void matvec_main()
+void spmv_main(int argc, char** argv)
 {
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   int mpi_size;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+
+  std::string argv1;
+  if (argc == 2)
+  {
+    argv1 = argv[1];
+  }
+  else
+  {
+    throw std::runtime_error("Use: ./spmv_demo <matrix_file>");
+  }
 
   sycl::queue queue(sycl::cpu_selector{});
 
@@ -28,10 +39,10 @@ void matvec_main()
   auto timer_start = std::chrono::system_clock::now();
 
   // Either create a simple 1D stencil
-  spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 2000000);
+  // spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 2000000);
 
   // Or read file created with "-ksp_view_mat binary" option
-  //  spmv::Matrix A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, "A4.dat");
+  spmv::Matrix A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
 
   std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
 
@@ -71,7 +82,6 @@ void matvec_main()
     std::cout << "Applying matrix " << n_apply << " times\n";
 
   // Temporary variable
-  // Eigen::VectorXd q(M);
   auto q = sycl::malloc_shared<double>(M, queue);
   for (int i = 0; i < n_apply; ++i)
   {
@@ -85,15 +95,16 @@ void matvec_main()
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 
-    // timer_start = std::chrono::system_clock::now();
-    // psp = q;
-    // timer_end = std::chrono::system_clock::now();
-    // timings["4.Copy"] += (timer_end - timer_start);
+    timer_start = std::chrono::system_clock::now();
+    psp = q;
+    timer_end = std::chrono::system_clock::now();
+    timings["4.Copy"] += (timer_end - timer_start);
   }
 
-  // double pnorm = psp.head(M).squaredNorm();
-  // double pnorm_sum;
-  // MPI_Allreduce(&pnorm, &pnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  double pnorm;
+  spmv::squared_norm(queue, M, psp, &pnorm).wait();
+  double pnorm_sum;
+  MPI_Allreduce(&pnorm, &pnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   MPI_Barrier(MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
@@ -120,11 +131,11 @@ void matvec_main()
     }
   }
 
-  // if (mpi_rank == 0)
-  // {
-  //   std::cout << "----------------------------\n";
-  //   std::cout << "norm = " << pnorm_sum << "\n";
-  // }
+  if (mpi_rank == 0)
+  {
+    std::cout << "----------------------------\n";
+    std::cout << "norm = " << pnorm_sum << "\n";
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -143,7 +154,7 @@ int main(int argc, char** argv)
   MPI_Init(&argc, &argv);
 #endif
 
-  matvec_main();
+  spmv_main(argc, argv);
 
   MPI_Finalize();
   return 0;

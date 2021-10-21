@@ -1,13 +1,16 @@
 set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 
-if(USE_DPCPP)
+if(USE_DPCPP OR USE_HIPSYCL)
   add_library(${PROJECT_NAME} SHARED L2GMap.cpp Matrix.cpp read_petsc.cpp cg_sycl.cpp)
+  if(USE_HIPSYCL)
+    add_sycl_to_target(TARGET ${PROJECT_NAME})
+  endif()
 else()
   add_library(${PROJECT_NAME} SHARED L2GMap.cpp Matrix.cpp read_petsc.cpp cg.cpp)
 endif()
 
-target_include_directories (${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_include_directories (${PROJECT_NAME} INTERFACE $<INSTALL_INTERFACE:include>)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(${PROJECT_NAME} INTERFACE $<INSTALL_INTERFACE:include>)
 
 target_link_libraries(${PROJECT_NAME} PUBLIC Eigen3::Eigen MPI::MPI_CXX)
 if(OpenMP_CXX_FOUND)

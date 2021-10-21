@@ -3,8 +3,9 @@
 // SPDX-License-Identifier:    MIT
 
 #include "mpi_types.h"
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
+#include <cassert>
+#include <cstring>
+#include <map>
 #include <mpi.h>
 #include <vector>
 

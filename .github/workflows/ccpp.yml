@@ -17,8 +17,6 @@ jobs:
       run: make
     - name: Run unit tests
       run: make test
-    - name: Run with 2 processes
-      run: ./demos/spmv_demo && mpirun -n 2 ./demos/spmv_demo
 
   build_openmp:
 
@@ -34,5 +32,3 @@ jobs:
       run: make
     - name: Run unit tests
       run: make test
-    - name: Run with 2 processes
-      run: ./demos/spmv_demo && OMP_NUM_THREADS=2 mpirun -n 2 ./demos/spmv_demo

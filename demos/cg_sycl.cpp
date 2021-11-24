@@ -6,10 +6,9 @@
 #include <memory>
 #include <mpi.h>
 
-#include <spmv/L2GMap.h>
-#include <spmv/Matrix.h>
-#include <spmv/cg_sycl.h>
-#include <spmv/read_petsc.h>
+#include <spmv/spmv.h>
+
+using namespace std;
 
 int cg_main(int argc, char** argv)
 {
@@ -22,45 +21,39 @@ int cg_main(int argc, char** argv)
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
 
   // Keep list of timings
-  std::map<std::string, std::chrono::duration<double>> timings;
+  map<string, chrono::duration<double>> timings;
 
-  auto timer_start = std::chrono::system_clock::now();
+  auto timer_start = chrono::system_clock::now();
 
-  std::string argv1, argv2;
-  if (argc == 3)
-  {
+  string argv1, argv2;
+  if (argc == 3) {
     argv1 = argv[1];
     argv2 = argv[2];
-  }
-  else
-  {
-    throw std::runtime_error("Use: ./cg_demo <matrix_file> <vector_file>");
+  } else {
+    throw runtime_error("Use: ./cg_demo <matrix_file> <vector_file>");
   }
 
   sycl::queue queue(sycl::cpu_selector{});
   auto device = queue.get_device();
-  std::cout << "\n[INFO]: MPI rank " << mpi_rank << " running on "
-            << device.get_info<sycl::info::device::name>() << std::endl;
+  cout << "\n[INFO]: MPI rank " << mpi_rank << " running on "
+       << device.get_info<sycl::info::device::name>() << endl;
 
   // Read matrix
-  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
-  // A.tune(queue);
+  bool use_symmetry = true;
+  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, use_symmetry);
 
   // Read vector
-  auto b_tmp = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
-  auto b = sycl::malloc_shared<double>(A.rows(), queue);
-  // Copy data from Eigen vector to SYCL buffer
-  for (int i = 0; i < A.rows(); i++)
-    b[i] = b_tmp(i);
+  auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
 
   // Get local and global sizes
-  std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
-  std::int64_t N = l2g->global_size();
+  shared_ptr<const spmv::L2GMap> l2g = A.col_map();
+  int64_t N = l2g->global_size();
+  int N_padded = l2g->local_size() + l2g->num_ghosts();
 
   if (mpi_rank == 0)
-    std::cout << "Global vec size = " << N << "\n";
+    cout << "Global vec size = " << N << "\n";
 
-  auto timer_end = std::chrono::system_clock::now();
+  auto timer_end = chrono::system_clock::now();
   timings["0.ReadPetsc"] += (timer_end - timer_start);
 
   int max_its = 10;
@@ -68,62 +61,62 @@ int cg_main(int argc, char** argv)
 
   // Turn on profiling for solver only
   MPI_Pcontrol(1);
-  timer_start = std::chrono::system_clock::now();
-  auto [x, num_its] = spmv::cg(MPI_COMM_WORLD, queue, A, b, max_its, rtol);
-  timer_end = std::chrono::system_clock::now();
+  timer_start = chrono::system_clock::now();
+  // Solve A*x = b
+  auto [x, num_its]
+      = spmv::cg(MPI_COMM_WORLD, queue, A, b.data(), max_its, rtol);
+  timer_end = chrono::system_clock::now();
   timings["1.Solve"] += (timer_end - timer_start);
   MPI_Pcontrol(0);
 
-  // Get norm on local part of vector
-  double xnorm;
-  spmv::squared_norm(queue, l2g->local_size(), x, &xnorm).wait();
-  double xnorm_sum;
-  MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
   // Test result
-  auto y = sycl::malloc_shared<double>(A.rows(), queue);
+  double xnorm, xnorm_sum;
+  double rnorm, rnorm_sum;
   l2g->update(x);
-  A.mult(queue, x, y).wait();
-  auto r = sycl::malloc_shared<double>(A.rows(), queue);
-  spmv::axpy(queue, A.rows(), -1.0, b, y, r).wait();
-  double rnorm;
-  spmv::squared_norm(queue, l2g->local_size(), r, &rnorm).wait();
-  double rnorm_sum;
-  MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-  if (mpi_rank == 0)
   {
-    std::cout << "r.norm = " << std::sqrt(rnorm_sum) << "\n";
-    std::cout << "x.norm = " << std::sqrt(xnorm_sum) << " in " << num_its
-              << " iterations\n";
-    std::cout << "\nTimings (" << mpi_size
-              << ")\n----------------------------\n";
+    // Compute norm of x
+    sycl::buffer<double> x_buf{x, sycl::range(N_padded)};
+    spmv::squared_norm(queue, l2g->local_size(), x_buf, &xnorm);
+    MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+    // Compute norm of r = A*x - b
+    sycl::buffer<double> y_buf{sycl::range(A.rows())};
+    A.mult(queue, x_buf, y_buf);
+
+    // r = A*x - b
+    sycl::buffer<double> b_buf{b.data(), sycl::range(A.rows())};
+    sycl::buffer<double> r_buf{sycl::range(A.rows())};
+    spmv::axpy(queue, A.rows(), -1.0, b_buf, y_buf, r_buf);
+    spmv::squared_norm(queue, l2g->local_size(), r_buf, &rnorm);
+    MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   }
 
-  std::chrono::duration<double> total_time
-      = std::chrono::duration<double>::zero();
+  if (mpi_rank == 0) {
+    cout << "r.norm = " << sqrt(rnorm_sum) << "\n";
+    cout << "x.norm = " << sqrt(xnorm_sum) << " in " << num_its
+         << " iterations\n";
+    cout << "\nTimings (" << mpi_size << ")\n----------------------------\n";
+  }
+
+  chrono::duration<double> total_time = chrono::duration<double>::zero();
   for (auto q : timings)
     total_time += q.second;
   timings["Total"] = total_time;
 
-  for (auto q : timings)
-  {
+  for (auto q : timings) {
     double q_local = q.second.count(), q_max, q_min;
     MPI_Reduce(&q_local, &q_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
     MPI_Reduce(&q_local, &q_min, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
 
-    if (mpi_rank == 0)
-    {
-      std::string pad(16 - q.first.size(), ' ');
-      std::cout << "[" << q.first << "]" << pad << q_min << '\t' << q_max
-                << "\n";
+    if (mpi_rank == 0) {
+      string pad(16 - q.first.size(), ' ');
+      cout << "[" << q.first << "]" << pad << q_min << '\t' << q_max << "\n";
     }
   }
 
   if (mpi_rank == 0)
-    std::cout << "----------------------------\n";
+    cout << "----------------------------\n";
 
-  cl::sycl::free(x, queue);
   return 0;
 }
 //-----------------------------------------------------------------------------

@@ -1,0 +1,5 @@
+target_sources(${PROJECT_NAME} PRIVATE cg.sycl.cpp)
+set_target_properties(${PROJECT_NAME} PROPERTIES PRIVATE_HEADER "cg_sycl.h")
+if (USE_HIPSYCL)
+  add_sycl_to_target(TARGET ${PROJECT_NAME})
+endif()

@@ -2,12 +2,15 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include "mpi_types.h"
-#include <cassert>
-#include <cstring>
 #include <map>
 #include <mpi.h>
 #include <vector>
+
+#include "mpi_types.h"
+
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 #pragma once
 
@@ -33,7 +36,11 @@ public:
   /// Ghosts must be sorted in ascending order.
   L2GMap(MPI_Comm comm, std::int64_t local_size,
          const std::vector<std::int64_t>& ghosts,
+#ifdef USE_CUDA
+         CommunicationModel cm = CommunicationModel::p2p_blocking);
+#else
          CommunicationModel cm = CommunicationModel::collective_blocking);
+#endif
 
   // Destructor destroys neighbour comm
   ~L2GMap();
@@ -67,16 +74,33 @@ public:
   /// @return A flag indicating whether comp/comm ovelap is enabled
   bool overlapping() const;
 
+  /// Global MPI communicator
+  /// @return The global MPI communicator.
+  MPI_Comm global_comm() const;
+
+  /// Global MPI rank
+  /// @return The global MPI rank.
+  int rank() const;
+
   /// Ghost update. Copies values from remote indices to the local process.
   /// This should be applied to a vector *before* a MatVec operation, if the
   /// Matrix has column ghosts.
   /// @param vec_data Pointer to vector data
   template <typename T>
   void update(T* vec_data) const;
+#ifdef USE_CUDA
+  template <typename T>
+  void update(T* vec_data, cudaStream_t& stream) const;
+#endif
+
   /// Ghost update finalisation. Completes MPI communication. This should be
   /// called when ovelapping is enabled.
   template <typename T>
   void update_finalise(T* vec_data) const;
+#ifdef USE_CUDA
+  template <typename T>
+  void update_finalise(T* vec_data, cudaStream_t& stream) const;
+#endif
 
   /// Reverse update. Sends ghost values to their owners, where they are
   /// accumulated at the local index. This should be applied to the result
@@ -107,6 +131,9 @@ private:
   std::vector<std::int32_t> _send_offset = {};
   std::vector<std::int32_t> _recv_offset = {};
   std::vector<std::int32_t> _recv_win_offset = {};
+#ifdef USE_CUDA
+  int* _d_indexbuf = {};
+#endif
 
   // Ranks of my neighbours
   std::vector<int> _neighbours = {};
@@ -115,12 +142,20 @@ private:
   // Neighbourhood communicator
   MPI_Comm _neighbour_comm = MPI_COMM_NULL;
   // Underlying MPI comunnication model
+#ifdef USE_CUDA
+  CommunicationModel _cm = CommunicationModel::p2p_blocking;
+#else
   CommunicationModel _cm = CommunicationModel::collective_blocking;
+#endif
   // MPI handle and intermediate buffers used to manage non-blocking
   // communication
   mutable MPI_Request* _req = nullptr;
   mutable void* _send_buf = nullptr;
   mutable void* _recv_buf = nullptr;
+#ifdef USE_CUDA
+  mutable void* _send_buf_device = nullptr;
+  mutable void* _recv_buf_device = nullptr;
+#endif
 
 private:
   // Private functions
@@ -136,6 +171,14 @@ private:
   void update_p2p_start(T* vec_data) const;
   template <typename T>
   void update_p2p_end(T* vec_data) const;
+#ifdef USE_CUDA
+  template <typename T>
+  void update_p2p(T* vec_data, cudaStream_t& stream) const;
+  template <typename T>
+  void update_p2p_start(T* vec_data, cudaStream_t& stream) const;
+  template <typename T>
+  void update_p2p_end(T* vec_data, cudaStream_t& stream) const;
+#endif
   template <typename T>
   void update_onesided_put_active(T* vec_data) const;
   template <typename T>

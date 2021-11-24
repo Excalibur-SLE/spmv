@@ -1,9 +1,8 @@
-// Copyright (C) 2020 Chris Richardson (chris@bpi.cam.ac.uk) and Jeffrey Salmond
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
 #pragma once
-#include <Eigen/Dense>
+
 #include <mpi.h>
 
 namespace spmv
@@ -23,8 +22,7 @@ class Matrix;
 ///
 /// @return tuple of result **x** and number of iterations
 ///
-std::tuple<Eigen::VectorXd, int> cg(MPI_Comm comm, const Matrix<double>& A,
-                                    const Eigen::Ref<const Eigen::VectorXd>& b,
-                                    int max_its, double rtol);
+std::tuple<double*, int> cg(MPI_Comm comm, const Matrix<double>& A, double* b,
+                            int max_its, double rtol);
 
 } // namespace spmv

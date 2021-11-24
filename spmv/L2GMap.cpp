@@ -4,9 +4,15 @@
 
 #include "L2GMap.h"
 #include <algorithm>
+#include <cassert>
+#include <cstring>
 #include <iostream>
 #include <set>
 #include <vector>
+
+#ifdef USE_CUDA
+#include "cuda/helper_cuda.h"
+#endif
 
 using namespace spmv;
 
@@ -36,8 +42,7 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
   // Get count on each process and local index
   std::vector<std::int32_t> ghost_count(mpi_size, 0);
   std::vector<std::int32_t> ghost_local;
-  for (std::size_t i = 0; i < _ghosts.size(); ++i)
-  {
+  for (std::size_t i = 0; i < _ghosts.size(); ++i) {
     const std::int64_t idx = _ghosts[i];
 
     if (idx >= r0 and idx < r1)
@@ -59,17 +64,13 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
   MPI_Alltoall(ghost_count.data(), 1, MPI_INT, remote_count.data(), 1, MPI_INT,
                comm);
 
-  for (std::size_t i = 0; i < ghost_count.size(); ++i)
-  {
+  for (std::size_t i = 0; i < ghost_count.size(); ++i) {
     const std::int32_t c = ghost_count[i];
     const std::int32_t rc = remote_count[i];
-    if (c > 0)
-    {
+    if (c > 0) {
       _neighbours.push_back(i);
       _send_count.push_back(c);
-    }
-    else if (rc > 0)
-    {
+    } else if (rc > 0) {
       _neighbours.push_back(i);
       _send_count.push_back(0);
     }
@@ -82,8 +83,7 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
                                  MPI_INFO_NULL, false, &_neighbour_comm);
 
   _recv_count.resize(neighbour_size);
-  if (neighbour_size == 0)
-  {
+  if (neighbour_size == 0) {
     // Needed for OpenMPI
     _send_count = {0};
     _recv_count = {0};
@@ -115,8 +115,7 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
 
   // Determine offsets in window of each neighbour for one-sided communication
   if (_cm == CommunicationModel::onesided_put_active
-      || _cm == CommunicationModel::onesided_put_passive)
-  {
+      || _cm == CommunicationModel::onesided_put_passive) {
     _recv_win_offset.resize(neighbour_size);
     MPI_Neighbor_alltoall(_send_offset.data(), 1, MPI_INT,
                           _recv_win_offset.data(), 1, MPI_INT, _neighbour_comm);
@@ -138,6 +137,19 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
     _req = new MPI_Request[neighbour_size];
   if (_cm == CommunicationModel::collective_nonblocking)
     _req = new MPI_Request;
+
+#ifdef USE_CUDA
+  // FIXME
+  // cudaMemPool_t mempool;
+  // cudaDeviceGetDefaultMemPool(&mempool, device);
+  // uint64_t threshold = UINT64_MAX;
+  // cudaMemPoolSetAttribute(mempool, cudaMemPoolAttrReleaseThreshold,
+  // &threshold);
+  CHECK_CUDA(cudaMalloc((void**)&_d_indexbuf, _indexbuf.size() * sizeof(int)));
+  CHECK_CUDA(cudaMemcpy(_d_indexbuf, _indexbuf.data(),
+                        _indexbuf.size() * sizeof(int),
+                        cudaMemcpyHostToDevice));
+#endif
 }
 //-----------------------------------------------------------------------------
 L2GMap::~L2GMap()
@@ -151,11 +163,19 @@ L2GMap::~L2GMap()
   if (_cm == CommunicationModel::collective_nonblocking)
     delete _req;
   if (_cm == CommunicationModel::p2p_nonblocking
-      || _cm == CommunicationModel::collective_nonblocking)
-  {
+      || _cm == CommunicationModel::collective_nonblocking) {
+#ifdef USE_CUDA
+    CHECK_CUDA(cudaFree(_send_buf_device));
+    CHECK_CUDA(cudaFree(_recv_buf_device));
+#else
     operator delete(_send_buf);
     operator delete(_recv_buf);
+#endif
   }
+
+#ifdef USE_CUDA
+  CHECK_CUDA(cudaFree(_d_indexbuf));
+#endif
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -237,15 +257,13 @@ void L2GMap::update_p2p(T* vec_data) const
   // reversed
   MPI_Datatype data_type = mpi_type<T>();
   const int num_neighbours = _neighbours.size();
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* recv_buf = vec_data + _send_offset[i];
     MPI_Irecv(recv_buf, _send_count[i], data_type, _neighbours[i], 0, _comm,
               &(_req[i]));
   }
 
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* send_buf = databuf.data() + _recv_offset[i];
     MPI_Send(send_buf, _recv_count[i], data_type, _neighbours[i], 0, _comm);
   }
@@ -275,15 +293,13 @@ void L2GMap::update_p2p_start(T* vec_data) const
   // reversed
   MPI_Datatype data_type = mpi_type<T>();
   const int num_neighbours = _neighbours.size();
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* recv_buf = static_cast<T*>(_recv_buf) + _send_offset[i];
     MPI_Irecv(recv_buf, _send_count[i], data_type, _neighbours[i], 0, _comm,
               &(_req[i]));
   }
 
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* send_buf = static_cast<T*>(_send_buf) + _recv_offset[i];
     MPI_Isend(send_buf, _recv_count[i], data_type, _neighbours[i], 0, _comm,
               &(_req[num_neighbours + i]));
@@ -321,8 +337,7 @@ void L2GMap::update_onesided_put_active(T* vec_data) const
   MPI_Datatype data_type = mpi_type<T>();
   // Synchronize private and public windows
   MPI_Win_fence(MPI_MODE_NOPRECEDE, win);
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* send_buf = databuf.data() + _recv_offset[i];
     MPI_Put(send_buf, _recv_count[i], data_type, _neighbours[i],
             _recv_win_offset[i], _recv_count[i], data_type, win);
@@ -353,8 +368,7 @@ void L2GMap::update_onesided_put_passive(T* vec_data) const
   // For every neighbor put the required data
   const int num_neighbours = _neighbours.size();
   MPI_Datatype data_type = mpi_type<T>();
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* send_buf = databuf.data() + _recv_offset[i];
     MPI_Win_lock(MPI_LOCK_SHARED, _neighbours[i], MPI_MODE_NOCHECK, win);
     MPI_Put(send_buf, _recv_count[i], data_type, _neighbours[i],
@@ -368,8 +382,7 @@ void L2GMap::update_onesided_put_passive(T* vec_data) const
 template <typename T>
 void L2GMap::update(T* vec_data) const
 {
-  switch (_cm)
-  {
+  switch (_cm) {
   case CommunicationModel::p2p_blocking:
     update_p2p(vec_data);
     break;
@@ -432,15 +445,13 @@ void L2GMap::reverse_update_p2p(T* vec_data) const
   const int num_neighbours = _neighbours.size();
   MPI_Request* rq = _req;
 
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* recv_buf = databuf.data() + _recv_offset[i];
     MPI_Irecv(recv_buf, _recv_count[i], data_type, _neighbours[i], 0, _comm,
               rq++);
   }
 
-  for (int i = 0; i < num_neighbours; ++i)
-  {
+  for (int i = 0; i < num_neighbours; ++i) {
     T* send_buf = vec_data + _send_offset[i];
     MPI_Isend(send_buf, _send_count[i], data_type, _neighbours[i], 0, _comm,
               rq++);
@@ -468,8 +479,7 @@ std::int32_t L2GMap::global_to_local(std::int64_t i) const
 
   if (i >= r0 and i < r1)
     return (i - r0);
-  else
-  {
+  else {
     auto it = _global_to_local.find(i);
     assert(it != _global_to_local.end());
     return it->second;
@@ -484,6 +494,10 @@ bool L2GMap::overlapping() const
              : false;
 }
 //-----------------------------------------------------------------------------
+MPI_Comm L2GMap::global_comm() const { return _comm; }
+//-----------------------------------------------------------------------------
+int L2GMap::rank() const { return _mpi_rank; }
+//-----------------------------------------------------------------------------
 std::int32_t L2GMap::local_size() const
 {
   return (_ranges[_mpi_rank + 1] - _ranges[_mpi_rank]);
@@ -495,6 +509,7 @@ std::int64_t L2GMap::global_size() const { return _ranges.back(); }
 //-----------------------------------------------------------------------------
 std::int64_t L2GMap::global_offset() const { return _ranges[_mpi_rank]; }
 //-----------------------------------------------------------------------------
+
 // Explicit instantiation
 template void spmv::L2GMap::update<double>(double*) const;
 template void spmv::L2GMap::update<float>(float*) const;

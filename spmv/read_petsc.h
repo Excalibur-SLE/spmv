@@ -2,18 +2,22 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include <Eigen/Sparse>
-#include <memory>
+#include <Eigen/Dense>
 #include <mpi.h>
 #include <string>
 
-#include "Matrix.h"
+#include "mpi_types.h"
 
 #pragma once
 
 namespace spmv
 {
+
+// Forward declarations
 class L2GMap;
+
+template <typename>
+class Matrix;
 
 /// @brief Read a binary PETSc matrix file (32-bit indices).
 ///
@@ -22,9 +26,16 @@ class L2GMap;
 /// @param filename Filename
 /// @param symmetric Indicates whether the matrix is symmetric
 /// @return spmv::Matrix<double> Matrix
+#ifdef USE_CUDA
+Matrix<double> read_petsc_binary_matrix(MPI_Comm comm, std::string filename,
+                                        bool symmetric = false,
+                                        CommunicationModel cm
+                                        = CommunicationModel::p2p_blocking);
+#else
 Matrix<double> read_petsc_binary_matrix(
     MPI_Comm comm, std::string filename, bool symmetric = false,
     CommunicationModel cm = CommunicationModel::collective_blocking);
+#endif
 
 /// @brief Read a binary PETSc vector file and distribute.
 ///

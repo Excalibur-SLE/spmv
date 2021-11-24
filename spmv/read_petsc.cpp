@@ -4,10 +4,13 @@
 
 #include "read_petsc.h"
 #include "L2GMap.h"
+#include "Matrix.h"
+#include <Eigen/Sparse>
 #include <cassert>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <vector>
 
 // Divide size into N ~equal chunks
@@ -19,8 +22,7 @@ std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
 
   // Compute local range
   std::vector<std::int64_t> ranges;
-  for (int rank = 0; rank < (size + 1); ++rank)
-  {
+  for (int rank = 0; rank < (size + 1); ++rank) {
     if (rank < r)
       ranges.push_back(rank * (n + 1));
     else
@@ -29,6 +31,7 @@ std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
 
   return ranges;
 }
+
 //-----------------------------------------------------------------------------
 spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
                                                     std::string filename,
@@ -59,8 +62,7 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
   file.read(memblock.data(), 16);
 
   char* ptr = memblock.data();
-  for (int i = 0; i < 4; ++i)
-  {
+  for (int i = 0; i < 4; ++i) {
     std::swap(*ptr, *(ptr + 3));
     std::swap(*(ptr + 1), *(ptr + 2));
     ptr += 4;
@@ -78,8 +80,8 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
   col_ranges = owner_ranges(mpi_size, ncols);
 
   if (mpi_rank == 0)
-    std::cout << "Read matrix file: " << filename << ": " << nrows << "x" << ncols
-              << " = " << nnz_tot << "\n";
+    std::cout << "Read matrix file: " << filename << ": " << nrows << "x"
+              << ncols << " = " << nnz_tot << "\n";
 
   nrows_local = row_ranges[mpi_rank + 1] - row_ranges[mpi_rank];
   ncols_local = col_ranges[mpi_rank + 1] - col_ranges[mpi_rank];
@@ -94,8 +96,7 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
   file.read(memblock.data(), nrows * 4);
   std::vector<std::int32_t> nnz(nrows);
   std::int64_t nnz_sum = 0;
-  for (int i = 0; i < nrows; ++i)
-  {
+  for (int i = 0; i < nrows; ++i) {
     std::swap(*ptr, *(ptr + 3));
     std::swap(*(ptr + 1), *(ptr + 2));
     nnz[i] = *((std::int32_t*)ptr);
@@ -123,18 +124,15 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
 
   std::int32_t c = 0;
   for (std::int64_t col = col_ranges[mpi_rank]; col < col_ranges[mpi_rank + 1];
-       ++col)
-  {
+       ++col) {
     col_indices.insert({col, c});
     ++c;
   }
 
   // Map other columns
   for (std::int64_t row = row_ranges[mpi_rank]; row < row_ranges[mpi_rank + 1];
-       ++row)
-  {
-    for (std::int64_t j = 0; j < nnz[row]; ++j)
-    {
+       ++row) {
+    for (std::int64_t j = 0; j < nnz[row]; ++j) {
       std::swap(*ptr, *(ptr + 3));
       std::swap(*(ptr + 1), *(ptr + 2));
       col_indices.insert({*((std::int32_t*)ptr), -1});
@@ -143,8 +141,7 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
   }
   // Ensure they are labelled in ascending order
   for (auto& q : col_indices)
-    if (q.second == -1)
-    {
+    if (q.second == -1) {
       q.second = c;
       ++c;
     }
@@ -164,10 +161,8 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
   char* vptr = valuedata.data();
   ptr = memblock.data();
   for (std::int64_t global_row = row_ranges[mpi_rank];
-       global_row < row_ranges[mpi_rank + 1]; ++global_row)
-  {
-    for (std::int64_t j = 0; j < nnz[global_row]; ++j)
-    {
+       global_row < row_ranges[mpi_rank + 1]; ++global_row) {
+    for (std::int64_t j = 0; j < nnz[global_row]; ++j) {
       std::swap(*vptr, *(vptr + 7));
       std::swap(*(vptr + 1), *(vptr + 6));
       std::swap(*(vptr + 2), *(vptr + 5));
@@ -178,8 +173,7 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
       // Look up column local index
       std::int32_t col = col_indices[*((std::int32_t*)ptr)];
 
-      if (symmetric)
-      {
+      if (symmetric) {
         std::int32_t global_col = *((std::int32_t*)ptr);
         // If element is in local column range, insert only if it's on or
         // below main diagonal
@@ -191,21 +185,16 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
         // If element is out of local column range, always insert
         if (col >= ncols_local)
           A_remote->insert(global_row - row_ranges[mpi_rank], col) = val;
-      }
-      else
-      {
+      } else {
         if (cm == CommunicationModel::p2p_nonblocking
-            || cm == CommunicationModel::collective_nonblocking)
-        {
+            || cm == CommunicationModel::collective_nonblocking) {
           // If element is in local column range, insert in "local" block
           if (col < ncols_local)
             A->insert(global_row - row_ranges[mpi_rank], col) = val;
           // Otherwise, store in "remote" block
           else
             A_remote->insert(global_row - row_ranges[mpi_rank], col) = val;
-        }
-        else
-        {
+        } else {
           A->insert(global_row - row_ranges[mpi_rank], col) = val;
         }
       }
@@ -248,16 +237,14 @@ Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,
 
   std::ifstream file(filename.c_str(),
                      std::ios::in | std::ios::binary | std::ios::ate);
-  if (file.is_open())
-  {
+  if (file.is_open()) {
     // Get first 2 ints from file
     std::vector<char> memblock(8);
     file.seekg(0, std::ios::beg);
     file.read(memblock.data(), 8);
 
     char* ptr = memblock.data();
-    for (int i = 0; i < 2; ++i)
-    {
+    for (int i = 0; i < 2; ++i) {
       std::swap(*ptr, *(ptr + 3));
       std::swap(*(ptr + 1), *(ptr + 2));
       ptr += 4;
@@ -290,8 +277,8 @@ Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,
     // Pointer to values
     char* vptr = valuedata.data();
 
-    for (std::int64_t row = ranges[mpi_rank]; row < ranges[mpi_rank + 1]; ++row)
-    {
+    for (std::int64_t row = ranges[mpi_rank]; row < ranges[mpi_rank + 1];
+         ++row) {
       std::swap(*vptr, *(vptr + 7));
       std::swap(*(vptr + 1), *(vptr + 6));
       std::swap(*(vptr + 2), *(vptr + 5));
@@ -300,8 +287,7 @@ Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,
       vptr += 8;
       vec[row - ranges[mpi_rank]] = val;
     }
-  }
-  else
+  } else
     throw std::runtime_error("Could not open file");
 
   return vec;

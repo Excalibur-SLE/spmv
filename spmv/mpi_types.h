@@ -36,8 +36,7 @@ inline MPI_Datatype mpi_type<std::complex<double>>()
 // @endcond
 
 // MPI communication model
-enum class CommunicationModel
-{
+enum class CommunicationModel {
   p2p_blocking,
   p2p_nonblocking,
   collective_blocking,

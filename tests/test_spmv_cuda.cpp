@@ -7,6 +7,8 @@
 #include <mpi.h>
 #include <set>
 
+#include <cuda_runtime.h>
+
 #include <spmv/spmv.h>
 
 // Compare double precision floating-point numbers (taken from the "Art of
@@ -35,7 +37,7 @@ static std::vector<int> compute_ranges(int size, int N)
   return ranges;
 }
 
-static bool test_spmv(bool symmetric, sycl::queue& queue)
+static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
 {
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -113,99 +115,82 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
   for (int i = 0; i < nrows_local + 1; i++)
     rowptr_local[i] -= row_offset;
 
+  // Create CUDA stream to offload operations
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
       MPI_COMM_WORLD, rowptr_local, colind_local, values_local, nrows_local,
-      ncols_local, {}, col_ghosts, symmetric);
-  A->tune(queue);
+      ncols_local, {}, col_ghosts, symmetric, cm);
 
   // Define local vectors
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
-  auto y_local = new double[nrows_local]();
-  auto x_local = new double[l2g->local_size() + l2g->num_ghosts()]();
-  // Initialize from global vector
-  memcpy(x_local, x.data() + row_start, ncols_local * sizeof(double));
+  double *d_y_local = nullptr, *d_x_local = nullptr;
+  cudaMalloc((void**)&d_y_local, nrows_local * sizeof(double));
+  cudaMalloc((void**)&d_x_local,
+             (l2g->local_size() + l2g->num_ghosts()) * sizeof(double));
+  cudaMemcpy(d_x_local, x.data() + row_start, ncols_local * sizeof(double),
+             cudaMemcpyHostToDevice);
 
-  {
-    // Update input vector from neighbors
-    l2g->update(x_local);
-
-    // Compute SpMV
-    auto y_local_buf = sycl::buffer(y_local, sycl::range<1>(nrows_local));
-    auto x_local_buf = sycl::buffer(
-        x_local, sycl::range<1>(l2g->local_size() + l2g->num_ghosts()));
-    A->mult(queue, x_local_buf, y_local_buf);
-  }
+  // Compute SpMV
+  l2g->update(d_x_local, stream);
+  A->mult(d_x_local, d_y_local, stream);
+  cudaStreamSynchronize(stream);
 
   double norm_test;
   {
-    Eigen::Map<Eigen::VectorXd> y_local_tmp(y_local, nrows_local);
-    double norm = y_local_tmp.squaredNorm();
+    Eigen::VectorXd y_local(nrows_local);
+    cudaMemcpy(y_local.data(), d_y_local, ncols_local * sizeof(double),
+               cudaMemcpyDeviceToHost);
+    double norm = y_local.squaredNorm();
     MPI_Allreduce(&norm, &norm_test, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     norm_test = sqrt(norm_test);
   }
 
   // Cleanup
   delete A;
-  delete[] x_local;
-  delete[] y_local;
+  cudaFree(d_y_local);
+  cudaFree(d_x_local);
+  cudaStreamDestroy(stream);
 
   if (essentially_equal(norm_test, norm_ref,
                         std::numeric_limits<double>::epsilon())) {
     std::cout << "PASSED (Rank " << mpi_rank << ")" << std::endl;
     return true;
   } else {
-    std::cout << "FAILED (Rank " << mpi_rank << ")" << std::endl;
+    std::cout << "FAILED (Rank " << norm_ref << " " << norm_test << " "
+              << mpi_rank << ")" << std::endl;
     return false;
   }
 }
 
 int main(int argc, char** argv)
 {
-#ifdef _OPENMP
-  int provided;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-  if (provided < MPI_THREAD_FUNNELED) {
-    std::cerr << "The threading support level is lesser than required"
-              << std::endl;
-    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-  }
-#else
   MPI_Init(&argc, &argv);
-#endif
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-  sycl::queue cpu_queue(sycl::cpu_selector{});
-
   bool ret = true;
   bool symmetric;
-  if (mpi_rank == 0)
-    std::cout << "Running vanilla SpMV on CPU... " << std::endl;
-  symmetric = false;
-  ret &= test_spmv(symmetric, cpu_queue);
+  spmv::CommunicationModel cm;
 
+  if (mpi_rank == 0)
+    std::cout << "Running vanilla SpMV on GPU with blocking communication... "
+              << std::endl;
+  symmetric = false;
+  cm = spmv::CommunicationModel::p2p_blocking;
+  ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on CPU... " << std::endl;
-  symmetric = true;
-  ret &= test_spmv(symmetric, cpu_queue);
-
-  // Run only if a is GPU available
-  sycl::queue gpu_queue(sycl::gpu_selector{});
-  sycl::device dev = gpu_queue.get_device();
-  if (dev.is_gpu()) {
-    symmetric = false;
-    if (mpi_rank == 0)
-      std::cout << "Running vanilla SpMV on GPU... " << std::endl;
-    ret &= test_spmv(symmetric, gpu_queue);
-
-    symmetric = true;
-    if (mpi_rank == 0)
-      std::cout << "Running symmetric SpMV on GPU... " << std::endl;
-    ret &= test_spmv(symmetric, gpu_queue);
-  }
+    std::cout
+        << "Running vanilla SpMV on GPU with non-blocking communication... "
+        << std::endl;
+  symmetric = false;
+  cm = spmv::CommunicationModel::p2p_nonblocking;
+  ret &= test_spmv(symmetric, cm);
+  MPI_Barrier(MPI_COMM_WORLD);
 
   MPI_Finalize();
   return (ret) ? 0 : 1;

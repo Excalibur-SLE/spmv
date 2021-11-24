@@ -35,7 +35,7 @@ static std::vector<int> compute_ranges(int size, int N)
   return ranges;
 }
 
-static bool test_spmv(bool symmetric, sycl::queue& queue)
+static bool test_spmv(bool symmetric)
 {
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -53,18 +53,19 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
                         -4.0, -3.0, 4.0,  4.0,  8.0, -4.0, 8.0};
 
   // Define a global input vector
-  Eigen::VectorXd x(N);
+  double* x = new double[N]();
   for (int i = 0; i < N; ++i) {
     double z = (double)(i) / double(N);
     x[i] = exp(-10 * pow(5 * (z - 0.5), 2.0));
   }
 
   // Compute reference result sequentially
+  // FIXME remove Eigen
   Eigen::VectorXd y_ref(N);
   for (int i = 0; i < N; ++i) {
     y_ref(i) = 0.0;
     for (int j = rowptr[i]; j < rowptr[i + 1]; ++j) {
-      y_ref(i) += values[j] * x(colind[j]);
+      y_ref(i) += values[j] * x[colind[j]];
     }
   }
   double norm_ref = y_ref.norm();
@@ -116,36 +117,30 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
       MPI_COMM_WORLD, rowptr_local, colind_local, values_local, nrows_local,
       ncols_local, {}, col_ghosts, symmetric);
-  A->tune(queue);
 
   // Define local vectors
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
-  auto y_local = new double[nrows_local]();
-  auto x_local = new double[l2g->local_size() + l2g->num_ghosts()]();
+  double* y_local = new double[N]();
+  double* x_local = new double[l2g->local_size() + l2g->num_ghosts()]();
   // Initialize from global vector
-  memcpy(x_local, x.data() + row_start, ncols_local * sizeof(double));
+  memcpy(x_local, x + row_start, ncols_local * sizeof(double));
 
-  {
-    // Update input vector from neighbors
-    l2g->update(x_local);
+  // Compute SpMV
+  l2g->update(x_local);
+  A->mult(x_local, y_local);
 
-    // Compute SpMV
-    auto y_local_buf = sycl::buffer(y_local, sycl::range<1>(nrows_local));
-    auto x_local_buf = sycl::buffer(
-        x_local, sycl::range<1>(l2g->local_size() + l2g->num_ghosts()));
-    A->mult(queue, x_local_buf, y_local_buf);
-  }
-
+  // FIXME remove Eigen
   double norm_test;
   {
-    Eigen::Map<Eigen::VectorXd> y_local_tmp(y_local, nrows_local);
-    double norm = y_local_tmp.squaredNorm();
+    Eigen::Map<Eigen::VectorXd> y_local_eigen(y_local, nrows_local);
+    double norm = y_local_eigen.squaredNorm();
     MPI_Allreduce(&norm, &norm_test, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     norm_test = sqrt(norm_test);
   }
 
   // Cleanup
   delete A;
+  delete[] x;
   delete[] x_local;
   delete[] y_local;
 
@@ -161,7 +156,6 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
 
 int main(int argc, char** argv)
 {
-#ifdef _OPENMP
   int provided;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
   if (provided < MPI_THREAD_FUNNELED) {
@@ -169,43 +163,24 @@ int main(int argc, char** argv)
               << std::endl;
     MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
   }
-#else
-  MPI_Init(&argc, &argv);
-#endif
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-  sycl::queue cpu_queue(sycl::cpu_selector{});
-
   bool ret = true;
   bool symmetric;
+
   if (mpi_rank == 0)
-    std::cout << "Running vanilla SpMV on CPU... " << std::endl;
+    std::cout << "Running vanilla SpMV on accelerator... " << std::endl;
   symmetric = false;
-  ret &= test_spmv(symmetric, cpu_queue);
+  ret &= test_spmv(symmetric);
 
   MPI_Barrier(MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on CPU... " << std::endl;
+    std::cout << "Running symmetric SpMV on accelerator... " << std::endl;
   symmetric = true;
-  ret &= test_spmv(symmetric, cpu_queue);
-
-  // Run only if a is GPU available
-  sycl::queue gpu_queue(sycl::gpu_selector{});
-  sycl::device dev = gpu_queue.get_device();
-  if (dev.is_gpu()) {
-    symmetric = false;
-    if (mpi_rank == 0)
-      std::cout << "Running vanilla SpMV on GPU... " << std::endl;
-    ret &= test_spmv(symmetric, gpu_queue);
-
-    symmetric = true;
-    if (mpi_rank == 0)
-      std::cout << "Running symmetric SpMV on GPU... " << std::endl;
-    ret &= test_spmv(symmetric, gpu_queue);
-  }
+  ret &= test_spmv(symmetric);
 
   MPI_Finalize();
   return (ret) ? 0 : 1;

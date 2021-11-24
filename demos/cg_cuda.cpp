@@ -19,6 +19,17 @@ void cg_main(int argc, char** argv)
   int mpi_size;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
 
+  // Set CUDA device for this process
+  MPI_Comm local_comm;
+  MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, mpi_rank,
+                      MPI_INFO_NULL, &local_comm);
+  int local_rank = -1;
+  MPI_Comm_rank(local_comm, &local_rank);
+  MPI_Comm_free(&local_comm);
+  int num_devices = 0;
+  cudaGetDeviceCount(&num_devices);
+  cudaSetDevice(local_rank % num_devices);
+
   // Keep list of timings
   std::map<std::string, std::chrono::duration<double>> timings;
 
@@ -54,13 +65,17 @@ void cg_main(int argc, char** argv)
   // Turn on profiling for solver only
   MPI_Pcontrol(1);
   timer_start = std::chrono::system_clock::now();
-  auto [x, num_its] = spmv::cg(MPI_COMM_WORLD, A, b, max_its, rtol);
+  auto [x_dev, num_its] = spmv::cg(MPI_COMM_WORLD, A, b.data(), max_its, rtol);
   timer_end = std::chrono::system_clock::now();
   timings["1.Solve"] += (timer_end - timer_start);
   MPI_Pcontrol(0);
 
-  // Test result
-  l2g->update(x.data());
+  // Test result on host
+  int N_padded = l2g->local_size() + l2g->num_ghosts();
+  double* x_host = new double[N_padded]();
+  cudaMemcpy(x_host, x_dev, N_padded * sizeof(double), cudaMemcpyDeviceToHost);
+  l2g->update(x_host);
+  Eigen::Map<Eigen::VectorXd> x(x_host, N_padded);
   Eigen::VectorXd r = A.mult(x) - b;
   double rnorm = r.squaredNorm();
   double rnorm_sum;
@@ -99,21 +114,15 @@ void cg_main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout << "----------------------------\n";
+
+  // Cleanup
+  free(x_host);
+  cudaFree(x_dev);
 }
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-#ifdef _OPENMP
-  int provided;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-  if (provided < MPI_THREAD_FUNNELED) {
-    std::cout << "The threading support level is lesser than required"
-              << std::endl;
-    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-  }
-#else
   MPI_Init(&argc, &argv);
-#endif
 
   cg_main(argc, argv);
 

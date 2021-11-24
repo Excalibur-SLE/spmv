@@ -53,8 +53,7 @@ void restrict_main()
     std::cout << "Applying matrix\n";
 
   double pnorm_sum, qnorm_sum;
-  for (int i = 0; i < 10; ++i)
-  {
+  for (int i = 0; i < 10; ++i) {
     // Restrict
     timer_start = std::chrono::system_clock::now();
     psp = R.transpmult(q);
@@ -97,22 +96,19 @@ void restrict_main()
     total_time += q.second;
   timings["Total"] = total_time;
 
-  for (auto q : timings)
-  {
+  for (auto q : timings) {
     double q_local = q.second.count(), q_max, q_min;
     MPI_Reduce(&q_local, &q_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
     MPI_Reduce(&q_local, &q_min, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
 
-    if (mpi_rank == 0)
-    {
+    if (mpi_rank == 0) {
       std::string pad(16 - q.first.size(), ' ');
       std::cout << "[" << q.first << "]" << pad << q_min << '\t' << q_max
                 << "\n";
     }
   }
 
-  if (mpi_rank == 0)
-  {
+  if (mpi_rank == 0) {
     std::cout << "----------------------------\n";
     std::cout << "norm q = " << qnorm_sum << "\n";
     std::cout << "norm p = " << pnorm_sum << "\n";
@@ -124,8 +120,7 @@ int main(int argc, char** argv)
 #ifdef _OPENMP
   int provided;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-  if (provided < MPI_THREAD_FUNNELED)
-  {
+  if (provided < MPI_THREAD_FUNNELED) {
     std::cout << "The threading support level is lesser than required"
               << std::endl;
     MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);

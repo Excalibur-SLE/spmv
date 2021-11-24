@@ -6,7 +6,7 @@
 #include "L2GMap.h"
 #include "Matrix.h"
 #include <iomanip>
-#include <iostream>
+#include <memory>
 
 //-----------------------------------------------------------------------------
 std::tuple<Eigen::VectorXd, int>
@@ -30,7 +30,7 @@ spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
 
   // Residual vector
   Eigen::VectorXd r(M);
-  Eigen::VectorXd y(M);
+  Eigen::VectorXd Ap(M);
   Eigen::VectorXd x(col_l2g->local_size() + col_l2g->num_ghosts());
   Eigen::VectorXd p(col_l2g->local_size() + col_l2g->num_ghosts());
   p.setZero();
@@ -48,23 +48,22 @@ spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
   const double rtol2 = rtol * rtol;
   double rnorm_old = rnorm0;
   int k = 0;
-  while (k < kmax)
-  {
+  while (k < kmax) {
     ++k;
 
-    // y = A.p
+    // Ap = A.p
     col_l2g->update(p.data());
-    y = A.mult(p);
+    Ap = A.mult(p);
 
-    // Calculate alpha = r.r/p.y
-    double pdoty = p.head(M).dot(y);
-    double pdoty_sum;
-    MPI_Allreduce(&pdoty, &pdoty_sum, 1, MPI_DOUBLE, MPI_SUM, comm);
-    double alpha = rnorm_old / pdoty_sum;
+    // Calculate alpha = r.r/p.Ap
+    double pdotAp_local = p.head(M).dot(Ap);
+    double pdotAp;
+    MPI_Allreduce(&pdotAp_local, &pdotAp, 1, MPI_DOUBLE, MPI_SUM, comm);
+    double alpha = rnorm_old / pdotAp;
 
     // Update x and r
     x.head(M) += alpha * p.head(M);
-    r -= alpha * y;
+    r -= alpha * Ap;
 
     // Update rnorm
     rnorm = r.squaredNorm();
@@ -73,11 +72,11 @@ spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
     double beta = rnorm_new / rnorm_old;
     rnorm_old = rnorm_new;
 
-    // Update p
-    p.head(M) = p.head(M) * beta + r;
-
     if (rnorm_new / rnorm0 < rtol2)
       break;
+
+    // Update p
+    p.head(M) = p.head(M) * beta + r;
   }
 
   return std::make_tuple(std::move(x), k);

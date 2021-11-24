@@ -17,8 +17,7 @@ std::vector<std::int64_t> owner_ranges(std::int64_t size, std::int64_t N)
 
   // Compute local range
   std::vector<std::int64_t> ranges;
-  for (int rank = 0; rank < (size + 1); ++rank)
-  {
+  for (int rank = 0; rank < (size + 1); ++rank) {
     if (rank < r)
       ranges.push_back(rank * (n + 1));
     else
@@ -50,23 +49,17 @@ spmv::Matrix<double> create_A(MPI_Comm comm, int N)
   // Add entries on all local rows
   // Using [local_row, global_column] indexing
   double gamma = 0.1;
-  for (int i = 0; i < M; ++i)
-  {
+  for (int i = 0; i < M; ++i) {
     // Global column diagonal index
     int c0 = r0 + i;
     // Special case for very first and last global rows
-    if (c0 == 0)
-    {
+    if (c0 == 0) {
       A.insert(i, c0) = 1.0 - gamma;
       A.insert(i, c0 + 1) = gamma;
-    }
-    else if (c0 == (N - 1))
-    {
+    } else if (c0 == (N - 1)) {
       A.insert(i, c0 - 1) = gamma;
       A.insert(i, c0) = 1.0 - gamma;
-    }
-    else
-    {
+    } else {
       A.insert(i, c0 - 1) = gamma;
       A.insert(i, c0) = 1.0 - 2.0 * gamma;
       A.insert(i, c0 + 1) = gamma;
@@ -77,8 +70,7 @@ spmv::Matrix<double> create_A(MPI_Comm comm, int N)
   // Remap columns to local indexing
   std::set<std::int64_t> ghost_indices;
   std::int32_t nnz = A.outerIndexPtr()[M];
-  for (std::int32_t i = 0; i < nnz; ++i)
-  {
+  for (std::int32_t i = 0; i < nnz; ++i) {
     std::int32_t global_index = A.innerIndexPtr()[i];
     if (global_index < r0 or global_index >= r1)
       ghost_indices.insert(global_index);
@@ -97,10 +89,8 @@ spmv::Matrix<double> create_A(MPI_Comm comm, int N)
   std::int32_t* Ainner = A.innerIndexPtr();
   double* Aval = A.valuePtr();
 
-  for (std::int32_t row = 0; row < M; ++row)
-  {
-    for (std::int32_t j = Aouter[row]; j < Aouter[row + 1]; ++j)
-    {
+  for (std::int32_t row = 0; row < M; ++row) {
+    for (std::int32_t j = Aouter[row]; j < Aouter[row + 1]; ++j) {
       std::int32_t col = col_l2g->global_to_local(Ainner[j]);
       double val = Aval[j];
       vals.push_back(Eigen::Triplet<double>(row, col, val));

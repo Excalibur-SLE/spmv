@@ -1,4 +1,4 @@
-# Require CMake 3.10
+# Require CMake 3.17
 cmake_minimum_required(VERSION 3.17)
 
 set(CMAKE_BUILD_TYPE RelWithDebInfo)

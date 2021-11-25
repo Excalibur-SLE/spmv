@@ -7,7 +7,7 @@ LIBSPMV is a proof-of-concept distributed-memory Sparse Matrix-Vector Multiplica
 2. SYCL
 3. CUDA
 
-The library also provides an implementation of the Conjugate Gradient (CG) method for solving large sparse linear systems.
+The communication phase of the SpMV kernel is implemented with multiple MPI-based communication models, including blocking and non-blocking collective and point-to-point communication, as well as one-sided communication. Also, the library focuses on optimizing SpMV for symmetric matrices, which often arise in scientific applications. Finally, the library provides an implementation of the Conjugate Gradient (CG) method for solving large sparse linear systems, using the optimized SpMV kernel.
 
 ## Getting Started
 

@@ -6,7 +6,8 @@ LIBSPMV is a proof-of-concept distributed-memory Sparse Matrix-Vector Multiplica
 1. OpenMP for CPUs and GPUs
 2. SYCL
 3. CUDA
- The library also provides an implementation of the Conjugate Gradient (CG) method for solving large sparse linear systems.
+
+The library also provides an implementation of the Conjugate Gradient (CG) method for solving large sparse linear systems.
 
 ## Getting Started
 

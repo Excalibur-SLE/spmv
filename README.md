@@ -29,6 +29,6 @@ It is recommended to build LIBSPMV in a separate directory form the source direc
 #### Optional features
 - To enable OpenMP on CPUs, use the `-DUSE_OPENMP=on` option.
 - To enable OpenMP offloading on GPUs, use the `-DUSE_OPENMP_OFFLOAD=on` option.
-- To enable SYCL, use the `-DUSE_DPCPP=on` option for Intel DPC++ or `-DUSE_HIPSYCL=on` option for HipSYCL. For hipSYCL, also set the HIPSYCL_TARGETS environment variable to select the target devices, e.g., 'omp;cuda:sm_xx'.
+- To enable SYCL, use the `-DUSE_DPCPP=on` option for Intel DPC++ or `-DUSE_HIPSYCL=on` option for hipSYCL. For hipSYCL, also set the HIPSYCL_TARGETS environment variable to select the target devices, e.g., 'omp;cuda:sm_xx'.
 - To enable GPU offloading with CUDA, use the `-DUSE_CUDA=on` option with -DCMAKE_CUDA_ARCHITECTURES=<sm_xx> to select the target device's compute capability.
 - To enable use of Intel MKL kernels where possible, use the `-DUSE_MKL_SEQUENTIAL=on` option for pure-MPI or the `-DUSE_MKL_PARALLEL=on` option for hybrid MPI+OpenMP.

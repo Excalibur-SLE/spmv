@@ -109,6 +109,7 @@ void spmv_main(int argc, char** argv)
 
     timer_start = std::chrono::system_clock::now();
     A.mult(d_psp, d_q, stream);
+    cudaStreamSynchronize(stream);
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 

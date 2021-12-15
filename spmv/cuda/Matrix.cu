@@ -243,9 +243,16 @@ void Matrix<float>::mult(float* __restrict__ x, float* __restrict__ y,
       }
     }
 
+    // Launch in a different stream to hide transfer
+    cudaStream_t transfer_stream;
+    CHECK_CUDA(
+        cudaStreamCreateWithFlags(&transfer_stream, cudaStreamNonBlocking));
     if (_col_map->overlapping()) {
-      _col_map->update_finalise(x, stream);
+      _col_map->update_finalise(x, transfer_stream);
     }
+    cudaEvent_t transfer_event;
+    cudaEventCreateWithFlags(&transfer_event, cudaEventDisableTiming);
+    cudaEventRecord(transfer_event, transfer_stream);
 
     // Launch SpMV on remote block if applicable
     if (_mat_remote != nullptr) {
@@ -268,7 +275,7 @@ void Matrix<float>::mult(float* __restrict__ x, float* __restrict__ y,
               CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size_remote));
           CHECK_CUDA(cudaMalloc(&_buffer_rmt, buffer_size_remote));
         }
-
+        CHECK_CUDA(cudaStreamWaitEvent(stream, transfer_event));
         CHECK_CUSPARSE(
             cusparseSpMV(_cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
                          &alpha, _mat_remote_cusparse, vec_x, &beta, vec_y,
@@ -277,6 +284,8 @@ void Matrix<float>::mult(float* __restrict__ x, float* __restrict__ y,
         CHECK_CUSPARSE(cusparseDestroyDnVec(vec_y));
       }
     }
+    CHECK_CUDA(cudaStreamDestroy(transfer_stream));
+    CHECK_CUDA(cudaEventDestroy(transfer_event));
   } else {
     CHECK_CUSPARSE(cusparseSetStream(_cusparse_handle, stream));
 
@@ -297,7 +306,7 @@ void Matrix<float>::mult(float* __restrict__ x, float* __restrict__ y,
           _cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
           _mat_local_cusparse, vec_x, &beta, vec_y, CUDA_R_32F,
           CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size));
-      CHECK_CUDA(cudaMalloc(&_buffer, buffer_size));
+      CHECK_CUDA(cudaMallocAsync(&_buffer, buffer_size, stream));
     }
 
     // Launch SpMV on local block
@@ -306,9 +315,16 @@ void Matrix<float>::mult(float* __restrict__ x, float* __restrict__ y,
                      _mat_local_cusparse, vec_x, &beta, vec_y, CUDA_R_32F,
                      CUSPARSE_SPMV_ALG_DEFAULT, _buffer));
 
+    // Launch in a different stream to hide transfer
+    cudaStream_t transfer_stream;
+    CHECK_CUDA(
+        cudaStreamCreateWithFlags(&transfer_stream, cudaStreamNonBlocking));
     if (_col_map->overlapping()) {
-      _col_map->update_finalise(x, stream);
+      _col_map->update_finalise(x, transfer_stream);
     }
+    cudaEvent_t transfer_event;
+    cudaEventCreateWithFlags(&transfer_event, cudaEventDisableTiming);
+    cudaEventRecord(transfer_event, transfer_stream);
 
     // Launch SpMV on remote block if applicable
     if (_mat_remote != nullptr) {
@@ -324,8 +340,9 @@ void Matrix<float>::mult(float* __restrict__ x, float* __restrict__ y,
               _cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
               _mat_remote_cusparse, vec_x, &beta, vec_y, CUDA_R_32F,
               CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size_remote));
-          CHECK_CUDA(cudaMalloc(&_buffer_rmt, buffer_size_remote));
+          CHECK_CUDA(cudaMallocAsync(&_buffer_rmt, buffer_size_remote, stream));
         }
+        CHECK_CUDA(cudaStreamWaitEvent(stream, transfer_event));
         CHECK_CUSPARSE(
             cusparseSpMV(_cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
                          &alpha, _mat_remote_cusparse, vec_x, &beta, vec_y,
@@ -336,6 +353,8 @@ void Matrix<float>::mult(float* __restrict__ x, float* __restrict__ y,
 
     CHECK_CUSPARSE(cusparseDestroyDnVec(vec_x));
     CHECK_CUSPARSE(cusparseDestroyDnVec(vec_y));
+    CHECK_CUDA(cudaStreamDestroy(transfer_stream));
+    CHECK_CUDA(cudaEventDestroy(transfer_event));
   }
 }
 //-----------------------------------------------------------------------------
@@ -352,9 +371,16 @@ void Matrix<double>::mult(double* __restrict__ x, double* __restrict__ y,
     spmv_sym_cuda(x, y, stream);
     CHECK_CUDA(cudaStreamSynchronize(stream));
 
+    // Launch in a different stream to hide transfer
+    cudaStream_t transfer_stream;
+    CHECK_CUDA(
+        cudaStreamCreateWithFlags(&transfer_stream, cudaStreamNonBlocking));
     if (_col_map->overlapping()) {
-      _col_map->update_finalise(x, stream);
+      _col_map->update_finalise(x, transfer_stream);
     }
+    cudaEvent_t transfer_event;
+    cudaEventCreateWithFlags(&transfer_event, cudaEventDisableTiming);
+    cudaEventRecord(transfer_event, transfer_stream);
 
     // Launch SpMV on remote block if applicable
     if (_mat_remote != nullptr) {
@@ -375,9 +401,9 @@ void Matrix<double>::mult(double* __restrict__ x, double* __restrict__ y,
               _cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
               _mat_remote_cusparse, vec_x, &beta, vec_y, CUDA_R_64F,
               CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size_remote));
-          CHECK_CUDA(cudaMalloc(&_buffer_rmt, buffer_size_remote));
+          CHECK_CUDA(cudaMallocAsync(&_buffer_rmt, buffer_size_remote, stream));
         }
-
+        CHECK_CUDA(cudaStreamWaitEvent(stream, transfer_event));
         CHECK_CUSPARSE(
             cusparseSpMV(_cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
                          &alpha, _mat_remote_cusparse, vec_x, &beta, vec_y,
@@ -386,6 +412,8 @@ void Matrix<double>::mult(double* __restrict__ x, double* __restrict__ y,
         CHECK_CUSPARSE(cusparseDestroyDnVec(vec_y));
       }
     }
+    CHECK_CUDA(cudaStreamDestroy(transfer_stream));
+    CHECK_CUDA(cudaEventDestroy(transfer_event));
   } else {
     CHECK_CUSPARSE(cusparseSetStream(_cusparse_handle, stream));
     double alpha = 1.0;
@@ -404,7 +432,7 @@ void Matrix<double>::mult(double* __restrict__ x, double* __restrict__ y,
           _cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
           _mat_local_cusparse, vec_x, &beta, vec_y, CUDA_R_64F,
           CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size));
-      CHECK_CUDA(cudaMalloc(&_buffer, buffer_size));
+      CHECK_CUDA(cudaMallocAsync(&_buffer, buffer_size, stream));
     }
 
     // Launch SpMV on local block
@@ -413,9 +441,16 @@ void Matrix<double>::mult(double* __restrict__ x, double* __restrict__ y,
                      _mat_local_cusparse, vec_x, &beta, vec_y, CUDA_R_64F,
                      CUSPARSE_SPMV_ALG_DEFAULT, _buffer));
 
+    // Launch in a different stream to hide transfer
+    cudaStream_t transfer_stream;
+    CHECK_CUDA(
+        cudaStreamCreateWithFlags(&transfer_stream, cudaStreamNonBlocking));
     if (_col_map->overlapping()) {
-      _col_map->update_finalise(x, stream);
+      _col_map->update_finalise(x, transfer_stream);
     }
+    cudaEvent_t transfer_event;
+    cudaEventCreateWithFlags(&transfer_event, cudaEventDisableTiming);
+    cudaEventRecord(transfer_event, transfer_stream);
 
     // Launch SpMV on remote block if applicable
     if (_mat_remote != nullptr) {
@@ -431,8 +466,9 @@ void Matrix<double>::mult(double* __restrict__ x, double* __restrict__ y,
               _cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
               _mat_remote_cusparse, vec_x, &beta, vec_y, CUDA_R_64F,
               CUSPARSE_SPMV_ALG_DEFAULT, &buffer_size_remote));
-          CHECK_CUDA(cudaMalloc(&_buffer_rmt, buffer_size_remote));
+          CHECK_CUDA(cudaMallocAsync(&_buffer_rmt, buffer_size_remote, stream));
         }
+        CHECK_CUDA(cudaStreamWaitEvent(stream, transfer_event));
         CHECK_CUSPARSE(
             cusparseSpMV(_cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
                          &alpha, _mat_remote_cusparse, vec_x, &beta, vec_y,
@@ -443,6 +479,8 @@ void Matrix<double>::mult(double* __restrict__ x, double* __restrict__ y,
 
     CHECK_CUSPARSE(cusparseDestroyDnVec(vec_x));
     CHECK_CUSPARSE(cusparseDestroyDnVec(vec_y));
+    CHECK_CUDA(cudaStreamDestroy(transfer_stream));
+    CHECK_CUDA(cudaEventDestroy(transfer_event));
   }
 }
 //-----------------------------------------------------------------------------

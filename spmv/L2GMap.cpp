@@ -163,7 +163,6 @@ L2GMap::~L2GMap()
       || _cm == CommunicationModel::collective_nonblocking) {
 #ifdef USE_CUDA
     CHECK_CUDA(cudaFree(_d_send_buf));
-    CHECK_CUDA(cudaFree(_d_recv_buf));
 #else
     operator delete(_send_buf);
     operator delete(_recv_buf);

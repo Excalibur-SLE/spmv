@@ -155,7 +155,6 @@ private:
   mutable void* _recv_buf = nullptr;
 #ifdef USE_CUDA
   mutable void* _d_send_buf = nullptr;
-  mutable void* _d_recv_buf = nullptr;
 #endif
 
 private:

@@ -90,8 +90,6 @@ void L2GMap::update_p2p_start(T* vec_data, cudaStream_t& stream) const
   // Allocate send and receive buffers, if this is the first call to update
   if (_d_send_buf == nullptr)
     CHECK_CUDA(cudaMalloc((void**)&_d_send_buf, num_indices * sizeof(T)));
-  if (_d_recv_buf == nullptr)
-    CHECK_CUDA(cudaMalloc((void**)&_d_recv_buf, num_ghosts() * sizeof(T)));
 
   // Get data from local indices to send to other processes, landing in their
   // ghost region
@@ -108,7 +106,7 @@ void L2GMap::update_p2p_start(T* vec_data, cudaStream_t& stream) const
   MPI_Datatype data_type = mpi_type<T>();
   const int num_neighbours = _neighbours.size();
   for (int i = 0; i < num_neighbours; ++i) {
-    T* recv_buf = static_cast<T*>(_d_recv_buf) + _send_offset[i];
+    T* recv_buf = vec_data + local_size() + _send_offset[i];
     MPI_Irecv(recv_buf, _send_count[i], data_type, _neighbours[i], 0, _comm,
               &(_req[i]));
   }
@@ -125,10 +123,6 @@ void L2GMap::update_p2p_end(T* vec_data, cudaStream_t& stream) const
 {
   assert(_cm == CommunicationModel::p2p_nonblocking);
   MPI_Waitall(2 * _neighbours.size(), _req, MPI_STATUSES_IGNORE);
-  // Copy ghosts from intermediate buffer to vector
-  CHECK_CUDA(cudaMemcpyAsync(vec_data + local_size(), _d_recv_buf,
-                             num_ghosts() * sizeof(T), cudaMemcpyDeviceToDevice,
-                             stream));
 }
 //-----------------------------------------------------------------------------
 

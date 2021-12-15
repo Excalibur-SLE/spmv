@@ -126,7 +126,6 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
     // Ap = A.p
     col_l2g->update(d_p, stream1);
     A.mult(d_p, d_Ap, stream1);
-    CHECK_CUDA(cudaStreamSynchronize(stream1));
 
     // Calculate alpha = r.r/p.Ap
     CHECK_CUBLAS(cublasDdot(cublas_handle, M, d_p, 1, d_Ap, 1, d_pdotAp_local));

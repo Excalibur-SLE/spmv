@@ -127,6 +127,7 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
   double *d_y_local = nullptr, *d_x_local = nullptr;
   cudaMalloc((void**)&d_y_local, nrows_local * sizeof(double));
+  cudaMemset(d_y_local, 0, nrows_local * sizeof(double));
   cudaMalloc((void**)&d_x_local,
              (l2g->local_size() + l2g->num_ghosts()) * sizeof(double));
   cudaMemcpy(d_x_local, x.data() + row_start, ncols_local * sizeof(double),
@@ -184,10 +185,26 @@ int main(int argc, char** argv)
   MPI_Barrier(MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
+    std::cout << "Running symmetric SpMV on GPU with blocking communication... "
+              << std::endl;
+  symmetric = true;
+  ret &= test_spmv(symmetric, cm);
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  if (mpi_rank == 0)
     std::cout
         << "Running vanilla SpMV on GPU with non-blocking communication... "
         << std::endl;
   symmetric = false;
+  cm = spmv::CommunicationModel::p2p_nonblocking;
+  ret &= test_spmv(symmetric, cm);
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  if (mpi_rank == 0)
+    std::cout
+        << "Running symmetric SpMV on GPU with non-blocking communication... "
+        << std::endl;
+  symmetric = true;
   cm = spmv::CommunicationModel::p2p_nonblocking;
   ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);

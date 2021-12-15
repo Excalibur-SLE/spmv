@@ -44,7 +44,9 @@ void cg_main(int argc, char** argv)
   }
 
   // Read matrix
-  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
+  bool symmetric = false;
+  spmv::CommunicationModel cm = spmv::CommunicationModel::p2p_blocking;
+  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, symmetric, cm);
 
   // Read vector
   auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);

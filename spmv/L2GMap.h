@@ -132,7 +132,8 @@ private:
   std::vector<std::int32_t> _recv_offset = {};
   std::vector<std::int32_t> _recv_win_offset = {};
 #ifdef USE_CUDA
-  int* _d_indexbuf = {};
+  mutable int* _d_indexbuf = nullptr;
+  mutable void* _d_databuf = nullptr;
 #endif
 
   // Ranks of my neighbours
@@ -153,8 +154,8 @@ private:
   mutable void* _send_buf = nullptr;
   mutable void* _recv_buf = nullptr;
 #ifdef USE_CUDA
-  mutable void* _send_buf_device = nullptr;
-  mutable void* _recv_buf_device = nullptr;
+  mutable void* _d_send_buf = nullptr;
+  mutable void* _d_recv_buf = nullptr;
 #endif
 
 private:

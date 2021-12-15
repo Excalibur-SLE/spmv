@@ -89,10 +89,10 @@ Matrix<T>::Matrix(shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
   const int* rowptr = _mat_local->outerIndexPtr();
   const int* colind = _mat_local->innerIndexPtr();
   const T* values = _mat_local->valuePtr();
-  #pragma omp target enter data map(to: nrows, nnz)
-  #pragma omp target enter data map(to: rowptr[:nrows + 1])
-  #pragma omp target enter data map(to: colind[:nnz])
-  #pragma omp target enter data map(to: values[:nnz])
+  #pragma omp target enter data map(to : nrows, nnz)
+  #pragma omp target enter data map(to : rowptr[:nrows + 1])
+  #pragma omp target enter data map(to : colind[:nnz])
+  #pragma omp target enter data map(to : values[:nnz])
 #endif // _OPENMP_OFFLOAD
 
   // FIXME if tune() is called after ctor then you have undefined behaviour
@@ -115,19 +115,7 @@ Matrix<T>::Matrix(shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
 #endif // _SYCL
 
 #ifdef USE_CUDA
-  // Allocate device buffers
-  const int nrows = _mat_local->rows();
-  const int nnz = _mat_local->nonZeros();
-  CHECK_CUDA(cudaMalloc((void**)&_d_rowptr_local, (nrows + 1) * sizeof(int)));
-  CHECK_CUDA(cudaMalloc((void**)&_d_colind_local, nnz * sizeof(int)));
-  CHECK_CUDA(cudaMalloc((void**)&_d_values_local, nnz * sizeof(T)));
-  CHECK_CUDA(cudaMemcpy(_d_rowptr_local, _mat_local->outerIndexPtr(),
-                        (nrows + 1) * sizeof(int), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(_d_colind_local, _mat_local->innerIndexPtr(),
-                        nnz * sizeof(int), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(_d_values_local, _mat_local->valuePtr(),
-                        nnz * sizeof(T), cudaMemcpyHostToDevice));
-  cusparse_init();
+  cuda_init();
 #endif // USE_CUDA
 }
 //-----------------------------------------------------------------------------
@@ -186,30 +174,7 @@ Matrix<T>::Matrix(
 #endif // _SYCL
 
 #ifdef USE_CUDA
-  // Allocate device buffers
-  int nrows = _mat_local->rows();
-  int nnz = _mat_local->nonZeros();
-  CHECK_CUDA(cudaMalloc((void**)&_d_rowptr_local, (nrows + 1) * sizeof(int)));
-  CHECK_CUDA(cudaMalloc((void**)&_d_colind_local, nnz * sizeof(int)));
-  CHECK_CUDA(cudaMalloc((void**)&_d_values_local, nnz * sizeof(T)));
-  CHECK_CUDA(cudaMemcpy(_d_rowptr_local, _mat_local->outerIndexPtr(),
-                        (nrows + 1) * sizeof(int), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(_d_colind_local, _mat_local->innerIndexPtr(),
-                        nnz * sizeof(int), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(_d_values_local, _mat_local->valuePtr(),
-                        nnz * sizeof(T), cudaMemcpyHostToDevice));
-  nrows = _mat_remote->rows();
-  nnz = _mat_remote->nonZeros();
-  CHECK_CUDA(cudaMalloc((void**)&_d_rowptr_remote, (nrows + 1) * sizeof(int)));
-  CHECK_CUDA(cudaMalloc((void**)&_d_colind_remote, nnz * sizeof(int)));
-  CHECK_CUDA(cudaMalloc((void**)&_d_values_remote, nnz * sizeof(T)));
-  CHECK_CUDA(cudaMemcpy(_d_rowptr_remote, _mat_remote->outerIndexPtr(),
-                        (nrows + 1) * sizeof(int), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(_d_colind_remote, _mat_remote->innerIndexPtr(),
-                        nnz * sizeof(int), cudaMemcpyHostToDevice));
-  CHECK_CUDA(cudaMemcpy(_d_values_remote, _mat_remote->valuePtr(),
-                        nnz * sizeof(T), cudaMemcpyHostToDevice));
-  cusparse_init();
+  cuda_init();
 #endif // USE_CUDA
 }
 //-----------------------------------------------------------------------------
@@ -249,17 +214,17 @@ Matrix<T>::Matrix(
   const int* colind_rmt = _mat_remote->innerIndexPtr();
   const T* values_rmt = _mat_remote->valuePtr();
   const T* diagonal = _mat_diagonal->data();
-  #pragma omp target enter data map(to: nrows, nnz)
-  #pragma omp target enter data map(to: rowptr[:nrows + 1])
-  #pragma omp target enter data map(to: colind[:nnz])
-  #pragma omp target enter data map(to: values[:nnz])
+  #pragma omp target enter data map(to : nrows, nnz)
+  #pragma omp target enter data map(to : rowptr[:nrows + 1])
+  #pragma omp target enter data map(to : colind[:nnz])
+  #pragma omp target enter data map(to : values[:nnz])
   if (nnz_rmt > 0) {
-    #pragma omp target enter data map(to: nnz_rmt)
-    #pragma omp target enter data map(to: rowptr_rmt[:nrows + 1])
-    #pragma omp target enter data map(to: colind_rmt[:nnz_rmt])
-    #pragma omp target enter data map(to: values_rmt[:nnz_rmt])
+    #pragma omp target enter data map(to : nnz_rmt)
+    #pragma omp target enter data map(to : rowptr_rmt[:nrows + 1])
+    #pragma omp target enter data map(to : colind_rmt[:nnz_rmt])
+    #pragma omp target enter data map(to : values_rmt[:nnz_rmt])
   }
-  #pragma omp target enter data map(to: diagonal[:nrows])
+  #pragma omp target enter data map(to : diagonal[:nrows])
 #endif // _OPENMP_OFFLOAD
 
 #ifdef _SYCL
@@ -316,6 +281,10 @@ Matrix<T>::Matrix(
       &(_y_local[0][0]), sycl::range(_nthreads, _mat_local->rows()),
       properties);
 #endif // _SYCL
+
+#ifdef USE_CUDA
+  cuda_init();
+#endif // USE_CUDA
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -329,19 +298,19 @@ Matrix<T>::~Matrix()
   const int* rowptr = _mat_local->outerIndexPtr();
   const int* colind = _mat_local->innerIndexPtr();
   const T* values = _mat_local->valuePtr();
-  #pragma omp target exit data map(release: rowptr[:nrows + 1])
-  #pragma omp target exit data map(release: colind[:nnz])
-  #pragma omp target exit data map(release: values[:nnz])
+  #pragma omp target exit data map(release : rowptr[:nrows + 1])
+  #pragma omp target exit data map(release : colind[:nnz])
+  #pragma omp target exit data map(release : values[:nnz])
   if (_symmetric) {
     const int nnz_rmt = _mat_remote->nonZeros();
     const int* rowptr_rmt = _mat_remote->outerIndexPtr();
     const int* colind_rmt = _mat_remote->innerIndexPtr();
     const T* values_rmt = _mat_remote->valuePtr();
     const T* diagonal = _mat_diagonal->data();
-    #pragma omp target exit data map(release: rowptr_rmt[:nrows + 1])
-    #pragma omp target exit data map(release: colind_rmt[:nnz_rmt])
-    #pragma omp target exit data map(release: values_rmt[:nnz_rmt])
-    #pragma omp target exit data map(release: diagonal[:nrows])
+    #pragma omp target exit data map(release : rowptr_rmt[:nrows + 1])
+    #pragma omp target exit data map(release : colind_rmt[:nnz_rmt])
+    #pragma omp target exit data map(release : values_rmt[:nnz_rmt])
+    #pragma omp target exit data map(release : diagonal[:nrows])
   }
 #endif // _OPENMP_OFFLOAD
 
@@ -371,7 +340,7 @@ Matrix<T>::~Matrix()
 #endif // _SYCL
 
 #ifdef USE_CUDA
-  cusparse_destroy();
+  //  cuda_destroy();
 #endif // USE_CUDA
 
 #ifdef USE_MKL
@@ -395,6 +364,28 @@ Matrix<T>::~Matrix()
 #endif
   }
 #endif // _OPENMP_HOST || _SYCL
+}
+//-----------------------------------------------------------------------------
+template <typename T>
+int Matrix<T>::rows() const
+{
+  if (_mat_local != nullptr)
+    return _mat_local->rows();
+  else if (_mat_remote != nullptr)
+    return _mat_remote->rows();
+  else
+    return 0;
+}
+//-----------------------------------------------------------------------------
+template <typename T>
+int Matrix<T>::cols() const
+{
+  if (_mat_local != nullptr)
+    return _mat_local->cols();
+  else if (_mat_remote != nullptr)
+    return _mat_remote->cols();
+  else
+    return 0;
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -748,7 +739,7 @@ Matrix<T>* Matrix<T>::create_matrix(MPI_Comm comm, const int32_t* rowptr,
     // range of this rank. The "remote" sub-block includes all nonzeros out
     // of the local column range of this rank
     auto Blocal = make_shared<Eigen::SparseMatrix<T, Eigen::RowMajor>>(
-        nrows_local, ncols_local + new_col_ghosts.size());
+        nrows_local, ncols_local);
     auto Bremote = make_shared<Eigen::SparseMatrix<T, Eigen::RowMajor>>(
         nrows_local, ncols_local + new_col_ghosts.size());
 
@@ -1054,7 +1045,7 @@ void Matrix<T>::spmv_sym(const T* x, T* y) const
   const T* diagonal = _mat_diagonal->data();
 
 #ifdef _OPENMP_HOST
-#pragma omp parallel
+  #pragma omp parallel
   {
     const int tid = omp_get_thread_num();
     const int nrows = rows();
@@ -1064,7 +1055,7 @@ void Matrix<T>::spmv_sym(const T* x, T* y) const
     // Compute diagonal
     for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
       y[i] = diagonal[i] * x[i];
-#pragma omp barrier
+    #pragma omp barrier
 
     for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i) {
       T y_tmp = 0;
@@ -1088,7 +1079,7 @@ void Matrix<T>::spmv_sym(const T* x, T* y) const
 
       y[i] += y_tmp;
     }
-#pragma omp barrier
+    #pragma omp barrier
 
     // Compute symmetric SpMV on local block - reduction of conflicts phase
     for (int i = _map_start[tid]; i < _map_end[tid]; ++i) {
@@ -1145,7 +1136,7 @@ void Matrix<T>::spmv_sym_overlap(T* x, T* y) const
   const T* diagonal = _mat_diagonal->data();
 
 #ifdef _OPENMP_HOST
-#pragma omp parallel
+  #pragma omp parallel
   {
     const int tid = omp_get_thread_num();
     const int nrows = rows();
@@ -1155,7 +1146,7 @@ void Matrix<T>::spmv_sym_overlap(T* x, T* y) const
     // Compute diagonal
     for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
       y[i] = diagonal[i] * x[i];
-#pragma omp barrier
+    #pragma omp barrier
 
     // Compute symmetric SpMV on local block - local vectors phase
     for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i) {
@@ -1175,10 +1166,10 @@ void Matrix<T>::spmv_sym_overlap(T* x, T* y) const
       y[i] += y_tmp;
     }
 
-// Finalise ghost updates
-#pragma omp master
+    // Finalise ghost updates
+    #pragma omp master
     _col_map->update_finalise(x);
-#pragma omp barrier
+    #pragma omp barrier
 
     // Compute vanilla SpMV on remote block
     for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i) {
@@ -1188,7 +1179,7 @@ void Matrix<T>::spmv_sym_overlap(T* x, T* y) const
       }
       y[i] += y_tmp;
     }
-#pragma omp barrier
+    #pragma omp barrier
 
     // Compute symmetric SpMV on local block - reduction of conflicts phase
     for (int i = _map_start[tid]; i < _map_end[tid]; ++i) {

@@ -139,16 +139,13 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
     _req = new MPI_Request;
 
 #ifdef USE_CUDA
-  // FIXME
-  // cudaMemPool_t mempool;
-  // cudaDeviceGetDefaultMemPool(&mempool, device);
-  // uint64_t threshold = UINT64_MAX;
-  // cudaMemPoolSetAttribute(mempool, cudaMemPoolAttrReleaseThreshold,
-  // &threshold);
-  CHECK_CUDA(cudaMalloc((void**)&_d_indexbuf, _indexbuf.size() * sizeof(int)));
-  CHECK_CUDA(cudaMemcpy(_d_indexbuf, _indexbuf.data(),
-                        _indexbuf.size() * sizeof(int),
-                        cudaMemcpyHostToDevice));
+  if (_indexbuf.size() > 0) {
+    CHECK_CUDA(
+        cudaMalloc((void**)&_d_indexbuf, _indexbuf.size() * sizeof(int)));
+    CHECK_CUDA(cudaMemcpy(_d_indexbuf, _indexbuf.data(),
+                          _indexbuf.size() * sizeof(int),
+                          cudaMemcpyHostToDevice));
+  }
 #endif
 }
 //-----------------------------------------------------------------------------
@@ -165,8 +162,8 @@ L2GMap::~L2GMap()
   if (_cm == CommunicationModel::p2p_nonblocking
       || _cm == CommunicationModel::collective_nonblocking) {
 #ifdef USE_CUDA
-    CHECK_CUDA(cudaFree(_send_buf_device));
-    CHECK_CUDA(cudaFree(_recv_buf_device));
+    CHECK_CUDA(cudaFree(_d_send_buf));
+    CHECK_CUDA(cudaFree(_d_recv_buf));
 #else
     operator delete(_send_buf);
     operator delete(_recv_buf);
@@ -175,6 +172,7 @@ L2GMap::~L2GMap()
 
 #ifdef USE_CUDA
   CHECK_CUDA(cudaFree(_d_indexbuf));
+  CHECK_CUDA(cudaFree(_d_databuf));
 #endif
 }
 //-----------------------------------------------------------------------------

@@ -53,15 +53,15 @@ void L2GMap::update_p2p(T* vec_data, cudaStream_t& stream) const
   // Get data from local indices to send to other processes, landing in their
   // ghost region
   const int num_indices = _indexbuf.size();
-  T* databuf = nullptr;
-  // FIXME make persistent
-  CHECK_CUDA(cudaMalloc((void**)&databuf, num_indices * sizeof(T)));
+  if (_d_databuf == nullptr) {
+    CHECK_CUDA(cudaMalloc((void**)&_d_databuf, num_indices * sizeof(T)));
+  }
   const int block_size = 128;
   const int num_blocks = (num_indices + block_size - 1) / block_size;
   dim3 dimBlock(block_size);
   dim3 dimGrid(num_blocks);
-  gather_ghosts<<<dimGrid, dimBlock, 0, stream>>>(num_indices, _d_indexbuf,
-                                                  vec_data, databuf);
+  gather_ghosts<<<dimGrid, dimBlock, 0, stream>>>(
+      num_indices, _d_indexbuf, vec_data, static_cast<T*>(_d_databuf));
   cudaStreamSynchronize(stream);
 
   // Send actual values - NB meaning of _send and _recv count/offset is
@@ -74,12 +74,11 @@ void L2GMap::update_p2p(T* vec_data, cudaStream_t& stream) const
   }
 
   for (int i = 0; i < num_neighbours; ++i) {
-    MPI_Send(databuf + _recv_offset[i], _recv_count[i], data_type,
-             _neighbours[i], 0, _comm);
+    MPI_Send(static_cast<T*>(_d_databuf) + _recv_offset[i], _recv_count[i],
+             data_type, _neighbours[i], 0, _comm);
   }
 
   MPI_Waitall(num_neighbours, _req, MPI_STATUSES_IGNORE);
-  CHECK_CUDA(cudaFree(databuf));
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -89,10 +88,10 @@ void L2GMap::update_p2p_start(T* vec_data, cudaStream_t& stream) const
   const int num_indices = _indexbuf.size();
 
   // Allocate send and receive buffers, if this is the first call to update
-  if (_send_buf_device == nullptr)
-    CHECK_CUDA(cudaMalloc((void**)&_send_buf_device, num_indices * sizeof(T)));
-  if (_recv_buf_device == nullptr)
-    CHECK_CUDA(cudaMalloc((void**)&_recv_buf_device, num_ghosts() * sizeof(T)));
+  if (_d_send_buf == nullptr)
+    CHECK_CUDA(cudaMalloc((void**)&_d_send_buf, num_indices * sizeof(T)));
+  if (_d_recv_buf == nullptr)
+    CHECK_CUDA(cudaMalloc((void**)&_d_recv_buf, num_ghosts() * sizeof(T)));
 
   // Get data from local indices to send to other processes, landing in their
   // ghost region
@@ -101,7 +100,7 @@ void L2GMap::update_p2p_start(T* vec_data, cudaStream_t& stream) const
   dim3 dimBlock(block_size);
   dim3 dimGrid(num_blocks);
   gather_ghosts<<<dimGrid, dimBlock, 0, stream>>>(
-      num_indices, _d_indexbuf, vec_data, static_cast<T*>(_send_buf_device));
+      num_indices, _d_indexbuf, vec_data, static_cast<T*>(_d_send_buf));
   cudaStreamSynchronize(stream);
 
   // Send actual values - NB meaning of _send and _recv count/offset is
@@ -109,13 +108,13 @@ void L2GMap::update_p2p_start(T* vec_data, cudaStream_t& stream) const
   MPI_Datatype data_type = mpi_type<T>();
   const int num_neighbours = _neighbours.size();
   for (int i = 0; i < num_neighbours; ++i) {
-    T* recv_buf = static_cast<T*>(_recv_buf_device) + _send_offset[i];
+    T* recv_buf = static_cast<T*>(_d_recv_buf) + _send_offset[i];
     MPI_Irecv(recv_buf, _send_count[i], data_type, _neighbours[i], 0, _comm,
               &(_req[i]));
   }
 
   for (int i = 0; i < num_neighbours; ++i) {
-    T* send_buf = static_cast<T*>(_send_buf_device) + _recv_offset[i];
+    T* send_buf = static_cast<T*>(_d_send_buf) + _recv_offset[i];
     MPI_Isend(send_buf, _recv_count[i], data_type, _neighbours[i], 0, _comm,
               &(_req[num_neighbours + i]));
   }
@@ -127,7 +126,7 @@ void L2GMap::update_p2p_end(T* vec_data, cudaStream_t& stream) const
   assert(_cm == CommunicationModel::p2p_nonblocking);
   MPI_Waitall(2 * _neighbours.size(), _req, MPI_STATUSES_IGNORE);
   // Copy ghosts from intermediate buffer to vector
-  CHECK_CUDA(cudaMemcpyAsync(vec_data + local_size(), _recv_buf_device,
+  CHECK_CUDA(cudaMemcpyAsync(vec_data + local_size(), _d_recv_buf,
                              num_ghosts() * sizeof(T), cudaMemcpyDeviceToDevice,
                              stream));
 }

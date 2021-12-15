@@ -38,7 +38,7 @@ namespace spmv
 // Forward declarations
 class L2GMap;
 
-// FIXME 
+// FIXME
 struct MergeCoordinate {
   int row_idx;
   int val_idx;
@@ -80,9 +80,9 @@ public:
   ~Matrix();
 
   /// Number of rows in the matrix
-  int rows() const { return _mat_local->rows(); }
+  int rows() const;
   /// Number of columns in the matrix
-  int cols() const { return _mat_local->cols(); }
+  int cols() const;
   /// Number of non-zeros in the matrix
   int non_zeros() const;
   /// True if symmetry is used in matrix encoding
@@ -113,7 +113,7 @@ public:
 
 #ifdef USE_CUDA
   // Interface using CUDA device pointers
-  void mult(T* x, T* y, cudaStream_t& stream) const;
+  void mult(T* __restrict__ x, T* __restrict__ y, cudaStream_t& stream) const;
 #endif
 
   /// MatVec operator for A^T x
@@ -240,7 +240,9 @@ private:
   int* _d_rowptr_local = nullptr;
   int* _d_colind_local = nullptr;
   T* _d_values_local = nullptr;
+  T* _d_diagonal = nullptr;
   int* _d_rowptr_remote = nullptr;
+  int* _d_rowind_remote = nullptr;
   int* _d_colind_remote = nullptr;
   T* _d_values_remote = nullptr;
   mutable void* _buffer = nullptr;
@@ -298,8 +300,13 @@ private:
 
 #ifdef USE_CUDA
   /// Setup the NVIDIA cuSPARSE library
-  void cusparse_init();
-  void cusparse_destroy();
+  void cuda_init();
+  void cuda_destroy();
+  /// Symmetric SpMV kernel
+  void spmv_sym_cuda(const T* __restrict__ x, T* __restrict__ y,
+                     cudaStream_t& stream) const;
+  void spmv_cuda(const T* __restrict__ x, T* __restrict__ y,
+                 cudaStream_t& stream) const;
 #endif // USE_CUDA
 
 #ifdef USE_MKL

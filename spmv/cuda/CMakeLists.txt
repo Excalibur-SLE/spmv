@@ -15,6 +15,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 # There is no workaround for -Wpedantic with gcc/nvcc and no immediate plans to fix this
 target_compile_options(${PROJECT_NAME} PUBLIC $<$<COMPILE_LANGUAGE:CUDA>:
   -Wno-pedantic
+  --ptxas-options=-v
   --generate-line-info
   --relocatable-device-code=true
   >)

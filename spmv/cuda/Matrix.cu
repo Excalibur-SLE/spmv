@@ -32,7 +32,7 @@ sym_gmem_atomics(const int* __restrict__ rowptr, const int* __restrict__ colind,
       }
     }
 
-    y[i] += y_tmp;
+    atomicAdd(&y[i], y_tmp);
   }
 }
 //-----------------------------------------------------------------------------

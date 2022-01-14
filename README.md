@@ -12,10 +12,10 @@ The communication phase of the SpMV kernel is implemented with multiple MPI-base
 ## Getting Started
 
 ### Prerequisites
-* CMake >= 3.17
-* C++ compiler with C++17 support
+* CMake >= 3.13
+* C++ compiler with C++14 support (C++17 in case ENABLE_HIPSYCL=on)
 * Eigen >= 3.3.9 (this dependency will be deprecated soon)
-* MPI implementation that supports the MPI-3.0 standard and is CUDA-aware (in case USE_CUDA=on)
+* MPI implementation that supports the MPI-3.0 standard and is CUDA-aware (in case ENABLE_CUDA=on)
 
 ### Installation
 It is recommended to build LIBSPMV in a separate directory form the source directory. The basic steps for building with CMake are:
@@ -27,8 +27,8 @@ It is recommended to build LIBSPMV in a separate directory form the source direc
 6. Run `make install` to install in directory defined through the `-DCMAKE_INSTALL_PREFIX=<path>` option.
 
 #### Optional features
-- To enable OpenMP on CPUs, use the `-DUSE_OPENMP=on` option.
-- To enable OpenMP offloading on GPUs, use the `-DUSE_OPENMP_OFFLOAD=on` option.
-- To enable SYCL, use the `-DUSE_DPCPP=on` option for Intel DPC++ or `-DUSE_HIPSYCL=on` option for hipSYCL. For hipSYCL, also set the HIPSYCL_TARGETS environment variable to select the target devices, e.g., 'omp;cuda:sm_xx'.
-- To enable GPU offloading with CUDA, use the `-DUSE_CUDA=on` option with -DCMAKE_CUDA_ARCHITECTURES=<sm_xx> to select the target device's compute capability.
-- To enable use of Intel MKL kernels where possible, use the `-DUSE_MKL_SEQUENTIAL=on` option for pure-MPI or the `-DUSE_MKL_PARALLEL=on` option for hybrid MPI+OpenMP.
+- To enable OpenMP on CPUs, use the `-DENABLE_OPENMP=on` option.
+- To enable OpenMP offloading on GPUs, use the `-DENABLE_OPENMP_OFFLOAD=on` option.
+- To enable SYCL, use the `-DENABLE_DPCPP=on` option for Intel DPC++ or `-DENABLE_HIPSYCL=on` option for hipSYCL. For hipSYCL, also set the HIPSYCL_TARGETS environment variable to select the target devices, e.g., 'omp;cuda:sm_xx'.
+- To enable GPU offloading with CUDA, use the `-DENABLE_CUDA=on` option with -DCMAKE_CUDA_ARCHITECTURES=<sm_xx> to select the target device's compute capability.
+- To enable use of Intel MKL kernels where possible, use the `-DENABLE_MKL_SEQUENTIAL=on` option for pure-MPI or the `-DENABLE_MKL_PARALLEL=on` option for hybrid MPI+OpenMP.

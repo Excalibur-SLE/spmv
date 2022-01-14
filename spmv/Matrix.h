@@ -3,6 +3,9 @@
 // SPDX-License-Identifier:    MIT
 
 #pragma once
+
+#include "config.h"
+
 // Needed for hipSYCL
 #ifdef __HIPSYCL__
 #undef SYCL_DEVICE_ONLY
@@ -18,16 +21,15 @@
 namespace sycl = cl::sycl;
 #endif // _SYCL
 
-#ifdef USE_CUDA
+#ifdef _CUDA
 #include <cuda_runtime.h>
-#include <cusparse.h>
 #endif
 
-#ifdef USE_MKL
+#ifdef _MKL
 #include <mkl.h>
-#endif // USE_MKL
+#endif // _MKL
 
-#include "mpi_types.h"
+#include "spmv_export.h"
 
 using namespace std;
 
@@ -37,6 +39,7 @@ namespace spmv
 
 // Forward declarations
 class L2GMap;
+struct cusparse_data_t;
 
 // FIXME
 struct MergeCoordinate {
@@ -51,7 +54,7 @@ constexpr int FACTOR = 1;
 #endif
 
 template <typename T>
-class Matrix
+class SPMV_EXPORT Matrix
 {
   /// Matrix with row and column maps.
 public:
@@ -98,21 +101,23 @@ public:
   /// MatVec operator
   /// Interface using Eigen vectors
   Eigen::Matrix<T, Eigen::Dynamic, 1>
-  mult(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const;
-
-#ifdef _OPENMP_OFFLOAD
+  mult(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x,
+       Device dev = Device::cpu) const;
   // Interface using normal pointers
-  void mult(T* x, T* y) const;
-#endif // _OPENMP_OFFLOAD
+  void mult(T* __restrict__ x, T* __restrict__ y,
+            Device dev = Device::cpu) const;
 
 #ifdef _SYCL
   /// SYCL interface using buffers
-  void mult(sycl::queue& q, sycl::buffer<T>& x_buf,
-            sycl::buffer<T>& y_buf) const;
+  void mult(sycl::buffer<T>& x_buf, sycl::buffer<T>& y_buf,
+            sycl::queue& q) const;
+  /// SYCL interface using USM pointers
+  sycl::event mult(T* x, T* y, sycl::queue& q,
+                   const std::vector<sycl::event>& dependencies = {}) const;
 #endif // _SYCL
 
-#ifdef USE_CUDA
-  // Interface using CUDA device pointers
+#ifdef _CUDA
+  // CUDA interface using device pointers
   void mult(T* __restrict__ x, T* __restrict__ y, cudaStream_t& stream) const;
 #endif
 
@@ -136,7 +141,7 @@ public:
       MPI_Comm comm, const Eigen::SparseMatrix<T, Eigen::RowMajor> mat,
       int64_t nrows_local, int64_t ncols_local, vector<int64_t> row_ghosts,
       vector<int64_t> col_ghosts, bool symmetric = false,
-#ifdef USE_CUDA
+#ifdef _CUDA
       CommunicationModel cm = CommunicationModel::p2p_blocking);
 #else
       CommunicationModel cm = CommunicationModel::collective_blocking);
@@ -154,7 +159,7 @@ public:
                                   vector<int64_t> col_ghosts,
                                   bool symmetric = false,
                                   CommunicationModel cm
-#ifdef USE_CUDA
+#ifdef _CUDA
                                   = CommunicationModel::p2p_blocking);
 #else
                                   = CommunicationModel::collective_blocking);
@@ -231,12 +236,8 @@ private:
   T* _carry_val = nullptr;
 #endif // _SYCL
 
-#ifdef USE_CUDA
-  cusparseHandle_t _cusparse_handle = 0;
-  cusparseSpMatDescr_t _mat_local_cusparse = nullptr;
-  cusparseSpMatDescr_t _mat_remote_cusparse = nullptr;
-  cusparseMatDescr_t _mat_local_desc = 0;
-  cusparseMatDescr_t _mat_remote_desc = 0;
+#ifdef _CUDA
+  cusparse_data_t* _cusparse_data = nullptr;
   int* _d_rowptr_local = nullptr;
   int* _d_colind_local = nullptr;
   T* _d_values_local = nullptr;
@@ -247,14 +248,14 @@ private:
   T* _d_values_remote = nullptr;
   mutable void* _buffer = nullptr;
   mutable void* _buffer_rmt = nullptr;
-#endif // USE_CUDA
+#endif // _CUDA
 
-#ifdef USE_MKL
+#ifdef _MKL
   sparse_matrix_t _mat_local_mkl;
   sparse_matrix_t _mat_remote_mkl;
   struct matrix_descr _mat_local_desc;
   struct matrix_descr _mat_remote_desc;
-#endif // USE_MKL
+#endif // _MKL
 
   // Private helper functions
 #if defined(_OPENMP) || defined(_SYCL)
@@ -269,14 +270,17 @@ private:
   void tune_internal(const int ncus);
 #endif // _OPENMP || _SYCL
 
+  /// Vanilla SpMV kernel
+  void spmv(const T* x, T* y, Device dev = Device::cpu) const;
   /// SpMV kernel with comm/comp overlap
   void spmv_overlap(T* x, T* y) const;
   Eigen::Matrix<T, Eigen::Dynamic, 1>
   spmv_overlap(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const;
   /// Symmetric SpMV kernel
-  void spmv_sym(const T* x, T* y) const;
+  void spmv_sym(const T* x, T* y, Device dev = Device::cpu) const;
   Eigen::Matrix<T, Eigen::Dynamic, 1>
-  spmv_sym(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const;
+  spmv_sym(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x,
+           Device dev = Device::cpu) const;
   /// Symmetric SpMV kernel with comm/comp overlap
   void spmv_sym_overlap(T* x, T* y) const;
   Eigen::Matrix<T, Eigen::Dynamic, 1>
@@ -291,14 +295,22 @@ private:
 
 #ifdef _SYCL
   /// SpMV kernel with buffers
-  void spmv_sycl(sycl::queue& q, sycl::buffer<T>& x_buf,
-                 sycl::buffer<T>& y_buf) const;
+  void spmv_sycl(sycl::buffer<T>& x_buf, sycl::buffer<T>& y_buf,
+                 sycl::queue& q) const;
+  /// SpMV symmetric kernel with USM pointers
+  sycl::event spmv_sycl(T* x, T* y, sycl::queue& q,
+                        const std::vector<sycl::event>& dependencies
+                        = {}) const;
   /// SpMV symmetric kernel with buffers
-  void spmv_sym_sycl(sycl::queue& q, sycl::buffer<T>& x_buf,
-                     sycl::buffer<T>& y_buf) const;
+  void spmv_sym_sycl(sycl::buffer<T>& x_buf, sycl::buffer<T>& y_buf,
+                     sycl::queue& q) const;
+  /// SpMV symmetric kernel with USM pointers
+  sycl::event spmv_sym_sycl(T* x, T* y, sycl::queue& q,
+                            const std::vector<sycl::event>& dependencies
+                            = {}) const;
 #endif // _SYCL
 
-#ifdef USE_CUDA
+#ifdef _CUDA
   /// Setup the NVIDIA cuSPARSE library
   void cuda_init();
   void cuda_destroy();
@@ -307,11 +319,11 @@ private:
                      cudaStream_t& stream) const;
   void spmv_cuda(const T* __restrict__ x, T* __restrict__ y,
                  cudaStream_t& stream) const;
-#endif // USE_CUDA
+#endif // _CUDA
 
-#ifdef USE_MKL
+#ifdef _MKL
   /// Setup the Intel MKL library
   void mkl_init();
-#endif // USE_MKL
+#endif // _MKL
 };
 } // namespace spmv

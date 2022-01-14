@@ -2,6 +2,7 @@
 // SPDX-License-Identifier:    MIT
 
 #include "L2GMap.h"
+#include "mpi_utils.h"
 #include "helper_cuda.h"
 #include <cassert>
 #include <iostream>

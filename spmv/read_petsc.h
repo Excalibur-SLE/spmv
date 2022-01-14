@@ -2,11 +2,13 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "config.h"
+
 #include <Eigen/Dense>
 #include <mpi.h>
 #include <string>
 
-#include "mpi_types.h"
+#include "spmv_export.h"
 
 #pragma once
 
@@ -26,12 +28,14 @@ class Matrix;
 /// @param filename Filename
 /// @param symmetric Indicates whether the matrix is symmetric
 /// @return spmv::Matrix<double> Matrix
-#ifdef USE_CUDA
+#ifdef _CUDA
+SPMV_EXPORT
 Matrix<double> read_petsc_binary_matrix(MPI_Comm comm, std::string filename,
                                         bool symmetric = false,
                                         CommunicationModel cm
                                         = CommunicationModel::p2p_blocking);
 #else
+SPMV_EXPORT
 Matrix<double> read_petsc_binary_matrix(
     MPI_Comm comm, std::string filename, bool symmetric = false,
     CommunicationModel cm = CommunicationModel::collective_blocking);
@@ -43,5 +47,6 @@ Matrix<double> read_petsc_binary_matrix(
 /// @param comm MPI Communicator
 /// @param filename Filename
 /// @return Vector of values
+SPMV_EXPORT
 Eigen::VectorXd read_petsc_binary_vector(MPI_Comm comm, std::string filename);
 } // namespace spmv

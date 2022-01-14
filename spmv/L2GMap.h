@@ -2,13 +2,16 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "config.h"
+
+#include <cstdint>
 #include <map>
 #include <mpi.h>
 #include <vector>
 
-#include "mpi_types.h"
+#include "spmv_export.h"
 
-#ifdef USE_CUDA
+#ifdef _CUDA
 #include <cuda_runtime.h>
 #endif
 
@@ -17,7 +20,7 @@
 namespace spmv
 {
 
-class L2GMap
+class SPMV_EXPORT L2GMap
 /// @brief Local to Global Map
 ///
 /// Maps from the local indices on the current process to global indices across
@@ -36,7 +39,7 @@ public:
   /// Ghosts must be sorted in ascending order.
   L2GMap(MPI_Comm comm, std::int64_t local_size,
          const std::vector<std::int64_t>& ghosts,
-#ifdef USE_CUDA
+#ifdef _CUDA
          CommunicationModel cm = CommunicationModel::p2p_blocking);
 #else
          CommunicationModel cm = CommunicationModel::collective_blocking);
@@ -88,7 +91,7 @@ public:
   /// @param vec_data Pointer to vector data
   template <typename T>
   void update(T* vec_data) const;
-#ifdef USE_CUDA
+#ifdef _CUDA
   template <typename T>
   void update(T* vec_data, cudaStream_t& stream) const;
 #endif
@@ -97,7 +100,7 @@ public:
   /// called when ovelapping is enabled.
   template <typename T>
   void update_finalise(T* vec_data) const;
-#ifdef USE_CUDA
+#ifdef _CUDA
   template <typename T>
   void update_finalise(T* vec_data, cudaStream_t& stream) const;
 #endif
@@ -131,7 +134,7 @@ private:
   std::vector<std::int32_t> _send_offset = {};
   std::vector<std::int32_t> _recv_offset = {};
   std::vector<std::int32_t> _recv_win_offset = {};
-#ifdef USE_CUDA
+#ifdef _CUDA
   mutable int* _d_indexbuf = nullptr;
   mutable void* _d_databuf = nullptr;
 #endif
@@ -143,7 +146,7 @@ private:
   // Neighbourhood communicator
   MPI_Comm _neighbour_comm = MPI_COMM_NULL;
   // Underlying MPI comunnication model
-#ifdef USE_CUDA
+#ifdef _CUDA
   CommunicationModel _cm = CommunicationModel::p2p_blocking;
 #else
   CommunicationModel _cm = CommunicationModel::collective_blocking;
@@ -153,7 +156,7 @@ private:
   mutable MPI_Request* _req = nullptr;
   mutable void* _send_buf = nullptr;
   mutable void* _recv_buf = nullptr;
-#ifdef USE_CUDA
+#ifdef _CUDA
   mutable void* _d_send_buf = nullptr;
 #endif
 
@@ -171,7 +174,7 @@ private:
   void update_p2p_start(T* vec_data) const;
   template <typename T>
   void update_p2p_end(T* vec_data) const;
-#ifdef USE_CUDA
+#ifdef _CUDA
   template <typename T>
   void update_p2p(T* vec_data, cudaStream_t& stream) const;
   template <typename T>

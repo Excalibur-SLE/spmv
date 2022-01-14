@@ -24,6 +24,9 @@ void spmv_main(int argc, char** argv)
     throw std::runtime_error("Use: ./spmv_demo <matrix_file>");
   }
 
+  // Choose device to run on
+  spmv::Device device = spmv::Device::cpu;
+
   // Keep list of timings
   std::map<std::string, std::chrono::duration<double>> timings;
 
@@ -33,7 +36,7 @@ void spmv_main(int argc, char** argv)
   // Or read file created with "-ksp_view_mat binary" option
   bool symmetric = false;
   spmv::CommunicationModel cm = spmv::CommunicationModel::collective_blocking;
-  spmv::Matrix A
+  spmv::Matrix<double> A
       = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, symmetric, cm);
   auto timer_end = std::chrono::system_clock::now();
   timings["0.MatCreate"] += (timer_end - timer_start);
@@ -68,7 +71,7 @@ void spmv_main(int argc, char** argv)
 
   // Temporary variable
   Eigen::VectorXd q(M);
-  q = A.mult(psp);
+  q = A.mult(psp, device);
   for (int i = 0; i < n_apply; ++i) {
     timer_start = std::chrono::system_clock::now();
     l2g->update(psp.data());
@@ -76,7 +79,7 @@ void spmv_main(int argc, char** argv)
     timings["2.SparseUpdate"] += (timer_end - timer_start);
 
     timer_start = std::chrono::system_clock::now();
-    q = A.mult(psp);
+    q = A.mult(psp, device);
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 

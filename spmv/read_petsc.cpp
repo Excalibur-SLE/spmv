@@ -5,6 +5,8 @@
 #include "read_petsc.h"
 #include "L2GMap.h"
 #include "Matrix.h"
+#include "mpi_utils.h"
+
 #include <Eigen/Sparse>
 #include <cassert>
 #include <fstream>

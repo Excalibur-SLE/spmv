@@ -53,7 +53,7 @@ void spmv_main(int argc, char** argv)
   // Or read matrix from file created with "-ksp_view_mat binary" option
   bool symmetric = false;
   spmv::CommunicationModel cm = spmv::CommunicationModel::p2p_blocking;
-  spmv::Matrix A
+  spmv::Matrix<double> A
       = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, symmetric, cm);
   auto timer_end = std::chrono::system_clock::now();
   timings["0.MatCreate"] += (timer_end - timer_start);

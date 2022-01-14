@@ -1,27 +1,49 @@
 # Executables
-add_executable(cg_demo cg.cpp)
-target_link_libraries(cg_demo LINK_PUBLIC ${PROJECT_NAME})
-add_executable(spmv_demo spmv.cpp CreateA.cpp)
-target_link_libraries(spmv_demo ${PROJECT_NAME})
-add_executable(restrictmain restrictmain.cpp)
-target_link_libraries(restrictmain ${PROJECT_NAME})
-
-if(USE_DPCPP OR USE_HIPSYCL)
+if(ENABLE_DPCPP OR ENABLE_HIPSYCL)
   add_executable(spmv_demo_sycl spmv_sycl.cpp CreateA.cpp)
-  target_link_libraries(spmv_demo_sycl LINK_PUBLIC ${PROJECT_NAME})
+  target_link_libraries(spmv_demo_sycl PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS spmv_demo_sycl DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+
   add_executable(cg_demo_sycl cg_sycl.cpp)
-  target_link_libraries(cg_demo_sycl LINK_PUBLIC ${PROJECT_NAME})
-  if(USE_HIPSYCL)
+  target_link_libraries(cg_demo_sycl PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS cg_demo_sycl DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+
+  if(ENABLE_HIPSYCL)
     add_sycl_to_target(TARGET spmv_demo_sycl SOURCES spmv_sycl.cpp)
     add_sycl_to_target(TARGET cg_demo_sycl SOURCES cg_sycl.cpp)
   endif()
-elseif(USE_OPENMP_OFFLOAD)
-  add_executable(spmv_demo_openmp_offload spmv_openmp_offload.cpp CreateA.cpp)
-  target_link_libraries(spmv_demo_openmp_offload LINK_PUBLIC ${PROJECT_NAME})
-elseif(USE_CUDA)
+elseif(ENABLE_CUDA)
   add_executable(spmv_demo_cuda spmv_cuda.cpp CreateA.cpp)
-  target_link_libraries(spmv_demo_cuda LINK_PUBLIC ${PROJECT_NAME})
-  target_link_libraries(spmv_demo_cuda PRIVATE CUDA::cublas)
+  target_link_libraries(spmv_demo_cuda PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
+    target_link_libraries(spmv_demo_cuda PRIVATE CUDA::cublas)
+  else()
+    target_link_libraries(spmv_demo_cuda PRIVATE ${CUBLAS_LIB})
+  endif()
+  install(TARGETS spmv_demo_cuda DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+
   add_executable(cg_demo_cuda cg_cuda.cpp)
-  target_link_libraries(cg_demo_cuda LINK_PUBLIC ${PROJECT_NAME})
+  set_target_properties(cg_demo_cuda PROPERTIES
+    CXX_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+    )
+  target_link_libraries(cg_demo_cuda PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS cg_demo_cuda DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+else()
+  add_executable(spmv_demo spmv.cpp CreateA.cpp)
+  target_link_libraries(spmv_demo PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS spmv_demo DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+
+  add_executable(cg_demo cg.cpp)
+  set_target_properties(cg_demo PROPERTIES
+    CXX_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+    )
+  target_link_libraries(cg_demo PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS cg_demo DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+
+  add_executable(restrictmain restrictmain.cpp)
+  target_link_libraries(restrictmain PRIVATE ${PROJECT_NAME}::${LIB_NAME})
 endif()

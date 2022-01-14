@@ -1,49 +1,91 @@
-add_library(${PROJECT_NAME} SHARED
+# Configure the library's main header file
+if(ENABLE_OPENMP)
+  set(_OPENMP_HOST 1)
+endif()
+if(ENABLE_OPENMP_OFFLOAD)
+  set(_OPENMP_OFFLOAD 1)
+endif()
+if(ENABLE_HIPSYCL OR ENABLE_DPCPP)
+  set(_SYCL 1)
+endif()
+if(ENABLE_CUDA)
+  set(_CUDA 1)
+endif()
+configure_file(${PROJECT_SOURCE_DIR}/spmv/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+
+add_library(${LIB_NAME} SHARED
   ${PROJECT_SOURCE_DIR}/spmv/L2GMap.cpp
   ${PROJECT_SOURCE_DIR}/spmv/Matrix.cpp
   ${PROJECT_SOURCE_DIR}/spmv/read_petsc.cpp
   ${PROJECT_SOURCE_DIR}/spmv/cg.cpp
   )
 
-set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "spmv.h")
-set_target_properties(${PROJECT_NAME} PROPERTIES PRIVATE_HEADER "L2GMap.h;Matrix.h;read_petsc.h;cg.h")
+# Create an alias to be used within the project and by other projects.
+# Namespaced names must be CMake targets, so wrong use of the library
+# name will be triggered at generation time instead of link time.
+# It is therefore more robust to link to namespaced names.
+add_library(${PROJECT_NAME}::${LIB_NAME} ALIAS ${LIB_NAME})
 
-if (USE_DPCPP OR USE_HIPSYCL)
+# Set header file search path for build and install directories
+# This is not needed because the header files are in the same directory
+# as the source files
+target_include_directories(${LIB_NAME} PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  )
+target_include_directories(${LIB_NAME} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  )
+
+# Create an export header to control symbol visibility.
+include(GenerateExportHeader)
+generate_export_header(${LIB_NAME})
+
+# Set the header files that need to be installed
+set_target_properties(${LIB_NAME} PROPERTIES PUBLIC_HEADER "spmv.h;L2GMap.h;Matrix.h;read_petsc.h;cg.h")
+
+# Set optional definitions
+target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${ENABLE_OPENMP}>:_OPENMP_HOST>)
+target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${ENABLE_OPENMP_OFFLOAD}>:_OPENMP_OFFLOAD>)
+target_compile_definitions(${LIB_NAME} PRIVATE $<$<OR:$<BOOL:${ENABLE_HIPSYCL}>,$<BOOL:${ENABLE_DPCPP}>>:_SYCL>)
+target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${ENABLE_CUDA}>:_CUDA>)
+target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${BLAS_FOUND}>:_MKL>)
+# Eigen-specific definitions
+target_compile_definitions(${LIB_NAME} PUBLIC "EIGEN_MAX_ALIGN_BYTES=32")
+
+# Set library dependencies
+target_link_libraries(${LIB_NAME} PUBLIC Eigen3::Eigen MPI::MPI_C)
+target_link_libraries(${LIB_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18)
+  # Can use imported target BLAS::BLAS for version >= 3.18
+  target_link_libraries(${LIB_NAME} PRIVATE $<$<BOOL:${BLAS_FOUND}>:BLAS::BLAS>)
+else()
+  target_link_libraries(${LIB_NAME} PRIVATE $<$<BOOL:${BLAS_FOUND}>:${BLAS_LIBRARIES}>)
+endif()
+
+# Include optional code
+if(ENABLE_DPCPP OR ENABLE_HIPSYCL)
   add_subdirectory(sycl)
-elseif (USE_OPENMP_OFFLOAD)
+elseif(ENABLE_OPENMP_OFFLOAD)
   add_subdirectory(openmp_offload)
-elseif (USE_CUDA)
+elseif(ENABLE_CUDA)
   add_subdirectory(cuda)
 endif()
 
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_include_directories(${PROJECT_NAME} INTERFACE $<INSTALL_INTERFACE:include>)
-
-target_link_libraries(${PROJECT_NAME} PUBLIC Eigen3::Eigen MPI::MPI_C)
-if (OpenMP_CXX_FOUND)
-  target_link_libraries(${PROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
-endif()
-if (BLAS_FOUND)
-  target_compile_definitions(${PROJECT_NAME} PRIVATE USE_MKL)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ${BLAS_LIBRARIES})
-endif()
-
-install(TARGETS ${PROJECT_NAME}
-  EXPORT libspmv
-  LIBRARY DESTINATION lib
-  PUBLIC_HEADER DESTINATION include
-  PRIVATE_HEADER DESTINATION include
+install(TARGETS ${LIB_NAME}
+  EXPORT ${PROJECT_NAME}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}
+  PRIVATE_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}
   )
 
-# First attempt at installing a config
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file( 
-  spmvConfig.cmake
-  VERSION ${PACKAGE_VERSION}
-  COMPATIBILITY AnyNewerVersion
-  )
+install(EXPORT ${PROJECT_NAME}
+  FILE ${PROJECT_NAME}Config.cmake
+  NAMESPACE ${PROJECT_NAME}::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake)
 
-install(EXPORT libspmv
-  FILE spmvConfig.cmake
-  NAMESPACE spmv::
-  DESTINATION share/spmv/cmake)
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/${LIB_NAME}_export.h
+  ${CMAKE_CURRENT_BINARY_DIR}/config.h
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}
+  )

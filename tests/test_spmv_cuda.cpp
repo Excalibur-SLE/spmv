@@ -9,7 +9,7 @@
 
 #include <cuda_runtime.h>
 
-#include <spmv/spmv.h>
+#include <spmv.h>
 
 // Compare double precision floating-point numbers (taken from the "Art of
 // Computer Programming")

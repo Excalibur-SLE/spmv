@@ -7,7 +7,7 @@
 #include <mpi.h>
 #include <set>
 
-#include <spmv/spmv.h>
+#include <spmv.h>
 
 // Compare double precision floating-point numbers (taken from the "Art of
 // Computer Programming")
@@ -133,7 +133,7 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
     auto y_local_buf = sycl::buffer(y_local, sycl::range<1>(nrows_local));
     auto x_local_buf = sycl::buffer(
         x_local, sycl::range<1>(l2g->local_size() + l2g->num_ghosts()));
-    A->mult(queue, x_local_buf, y_local_buf);
+    A->mult(x_local_buf, y_local_buf, queue);
   }
 
   double norm_test;

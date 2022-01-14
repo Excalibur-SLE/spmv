@@ -7,6 +7,7 @@
 #include <mpi.h>
 
 #include <spmv/spmv.h>
+#include <spmv/sycl/blas_sycl.h>
 
 using namespace std;
 
@@ -39,11 +40,14 @@ int cg_main(int argc, char** argv)
        << device.get_info<sycl::info::device::name>() << endl;
 
   // Read matrix
-  bool use_symmetry = true;
+  bool use_symmetry = false;
   auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, use_symmetry);
+  A.tune(queue);
 
   // Read vector
   auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
+  double* b_usm = sycl::malloc_shared<double>(b.size(), queue);
+  queue.memcpy(b_usm, b.data(), b.size() * sizeof(double)).wait();
 
   // Get local and global sizes
   shared_ptr<const spmv::L2GMap> l2g = A.col_map();
@@ -56,18 +60,22 @@ int cg_main(int argc, char** argv)
   auto timer_end = chrono::system_clock::now();
   timings["0.ReadPetsc"] += (timer_end - timer_start);
 
-  int max_its = 10;
+  int max_its = 100;
   double rtol = 1e-10;
 
   // Turn on profiling for solver only
   MPI_Pcontrol(1);
   timer_start = chrono::system_clock::now();
   // Solve A*x = b
-  auto [x, num_its]
-      = spmv::cg(MPI_COMM_WORLD, queue, A, b.data(), max_its, rtol);
+  // sycl::buffer<double, 1> b_buf{b.data(), b.size()};
+  // auto [x, num_its] = spmv::cg(MPI_COMM_WORLD, A, b_buf, max_its, rtol,
+  // queue);
+  auto [x, num_its] = spmv::cg(MPI_COMM_WORLD, A, b_usm, max_its, rtol, queue);
   timer_end = chrono::system_clock::now();
   timings["1.Solve"] += (timer_end - timer_start);
   MPI_Pcontrol(0);
+
+  sycl::free(b_usm, queue);
 
   // Test result
   double xnorm, xnorm_sum;
@@ -76,18 +84,17 @@ int cg_main(int argc, char** argv)
   {
     // Compute norm of x
     sycl::buffer<double> x_buf{x, sycl::range(N_padded)};
-    spmv::squared_norm(queue, l2g->local_size(), x_buf, &xnorm);
+    spmv::squared_norm(l2g->local_size(), x_buf, &xnorm, queue);
     MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
     // Compute norm of r = A*x - b
     sycl::buffer<double> y_buf{sycl::range(A.rows())};
-    A.mult(queue, x_buf, y_buf);
-
+    A.mult(x_buf, y_buf, queue);
     // r = A*x - b
     sycl::buffer<double> b_buf{b.data(), sycl::range(A.rows())};
     sycl::buffer<double> r_buf{sycl::range(A.rows())};
-    spmv::axpy(queue, A.rows(), -1.0, b_buf, y_buf, r_buf);
-    spmv::squared_norm(queue, l2g->local_size(), r_buf, &rnorm);
+    spmv::axpy(A.rows(), -1.0, b_buf, y_buf, r_buf, queue);
+    spmv::squared_norm(l2g->local_size(), r_buf, &rnorm, queue);
     MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   }
 

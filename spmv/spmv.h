@@ -1,11 +1,13 @@
 // Copyright (C) 2020 Chris Richardson (chris@bpi.cam.ac.uk) and Jeffrey Salmond
+// Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
+
+#include "config.h"
 
 #include "L2GMap.h"
 #include "Matrix.h"
-#include "mpi_types.h"
 #include "cg.h"
-#ifdef USE_CUDA
+#ifdef _CUDA
 #include "cuda/cg_cuda.h"
 #endif
 #ifdef _SYCL

@@ -22,6 +22,7 @@ class Matrix;
 ///
 /// @return tuple of result **x** and number of iterations
 ///
+SPMV_EXPORT
 std::tuple<double*, int> cg(MPI_Comm comm, const Matrix<double>& A, double* b,
                             int max_its, double rtol);
 

@@ -8,6 +8,7 @@
 
 #include "CreateA.h"
 #include <spmv/spmv.h>
+#include <spmv/sycl/blas_sycl.h>
 
 void spmv_main(int argc, char** argv)
 {
@@ -82,7 +83,7 @@ void spmv_main(int argc, char** argv)
       timings["2.SparseUpdate"] += (timer_end - timer_start);
 
       timer_start = std::chrono::system_clock::now();
-      A.mult(queue, psp_buf, q_buf);
+      A.mult(psp_buf, q_buf, queue);
       timer_end = std::chrono::system_clock::now();
       timings["3.SpMV"] += (timer_end - timer_start);
 
@@ -100,7 +101,7 @@ void spmv_main(int argc, char** argv)
       timings["4.Copy"] += (timer_end - timer_start);
     }
 
-    spmv::squared_norm(queue, M, psp_buf, &pnorm_local);
+    spmv::squared_norm(M, psp_buf, &pnorm_local, queue);
   }
 
   double pnorm;

@@ -9,6 +9,7 @@
 
 namespace spmv
 {
+
 /// Obtain the MPI datatype for a given scalar type
 template <typename T>
 inline MPI_Datatype mpi_type();
@@ -34,15 +35,5 @@ inline MPI_Datatype mpi_type<std::complex<double>>()
   return MPI_DOUBLE_COMPLEX;
 }
 // @endcond
-
-// MPI communication model
-enum class CommunicationModel {
-  p2p_blocking,
-  p2p_nonblocking,
-  collective_blocking,
-  collective_nonblocking,
-  onesided_put_active,
-  onesided_put_passive
-};
 
 } // namespace spmv

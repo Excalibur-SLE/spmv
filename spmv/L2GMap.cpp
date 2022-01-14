@@ -2,7 +2,9 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "mpi_utils.h"
 #include "L2GMap.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -10,7 +12,7 @@
 #include <set>
 #include <vector>
 
-#ifdef USE_CUDA
+#ifdef _CUDA
 #include "cuda/helper_cuda.h"
 #endif
 
@@ -138,7 +140,7 @@ L2GMap::L2GMap(MPI_Comm comm, std::int64_t local_size,
   if (_cm == CommunicationModel::collective_nonblocking)
     _req = new MPI_Request;
 
-#ifdef USE_CUDA
+#ifdef _CUDA
   if (_indexbuf.size() > 0) {
     CHECK_CUDA(
         cudaMalloc((void**)&_d_indexbuf, _indexbuf.size() * sizeof(int)));
@@ -161,7 +163,7 @@ L2GMap::~L2GMap()
     delete _req;
   if (_cm == CommunicationModel::p2p_nonblocking
       || _cm == CommunicationModel::collective_nonblocking) {
-#ifdef USE_CUDA
+#ifdef _CUDA
     CHECK_CUDA(cudaFree(_d_send_buf));
 #else
     operator delete(_send_buf);
@@ -169,7 +171,7 @@ L2GMap::~L2GMap()
 #endif
   }
 
-#ifdef USE_CUDA
+#ifdef _CUDA
   CHECK_CUDA(cudaFree(_d_indexbuf));
   CHECK_CUDA(cudaFree(_d_databuf));
 #endif

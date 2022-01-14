@@ -1,0 +1,38 @@
+// Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
+// SPDX-License-Identifier:    MIT
+
+#pragma once
+
+#ifndef _OPENMP_HOST
+#cmakedefine _OPENMP_HOST
+#endif
+
+#ifndef _OPENMP_OFFLOAD
+#cmakedefine _OPENMP_OFFLOAD
+#endif
+
+#ifndef _SYCL
+#cmakedefine _SYCL
+#endif
+
+#ifndef _CUDA
+#cmakedefine _CUDA
+#endif
+
+namespace spmv
+{
+
+// MPI communication model
+enum class CommunicationModel {
+  p2p_blocking,
+  p2p_nonblocking,
+  collective_blocking,
+  collective_nonblocking,
+  onesided_put_active,
+  onesided_put_passive
+};
+
+// Target device
+enum class Device { cpu, gpu };
+
+} // namespace spmv

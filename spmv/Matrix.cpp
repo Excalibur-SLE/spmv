@@ -8,9 +8,9 @@
 
 #include "L2GMap.h"
 #include "Matrix.h"
-#include "mpi_types.h"
+#include "mpi_utils.h"
 
-#ifdef USE_CUDA
+#ifdef _CUDA
 #include "cuda/helper_cuda.h"
 #endif
 
@@ -77,9 +77,9 @@ Matrix<T>::Matrix(shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
   // Assert overlapping is disabled in the column map
   if (col_map->overlapping())
     throw runtime_error("Ovelapping not supported in this format!");
-#ifdef USE_MKL
+#ifdef _MKL
   mkl_init();
-#endif // USE_MKL
+#endif // _MKL
 
 #ifdef _OPENMP_OFFLOAD
   // If target device is an accelerator, explicitly transfer data to the target
@@ -114,9 +114,9 @@ Matrix<T>::Matrix(shared_ptr<const Eigen::SparseMatrix<T, Eigen::RowMajor>> mat,
   _d_values_local->set_write_back(false);
 #endif // _SYCL
 
-#ifdef USE_CUDA
+#ifdef _CUDA
   cuda_init();
-#endif // USE_CUDA
+#endif // _CUDA
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -131,9 +131,9 @@ Matrix<T>::Matrix(
   if (!col_map->overlapping())
     throw runtime_error("Ovelapping not enabled in column mapping!");
 
-#ifdef USE_MKL
+#ifdef _MKL
   mkl_init();
-#endif // USE_MKL
+#endif // _MKL
 
 #ifdef _SYCL
   // Initialise SYCL buffers, ownership is passed to SYCL runtime
@@ -173,9 +173,9 @@ Matrix<T>::Matrix(
   }
 #endif // _SYCL
 
-#ifdef USE_CUDA
+#ifdef _CUDA
   cuda_init();
-#endif // USE_CUDA
+#endif // _CUDA
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -282,9 +282,9 @@ Matrix<T>::Matrix(
       properties);
 #endif // _SYCL
 
-#ifdef USE_CUDA
+#ifdef _CUDA
   cuda_init();
-#endif // USE_CUDA
+#endif // _CUDA
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -339,17 +339,17 @@ Matrix<T>::~Matrix()
   }
 #endif // _SYCL
 
-#ifdef USE_CUDA
-  //  cuda_destroy();
-#endif // USE_CUDA
+#ifdef _CUDA
+  cuda_destroy();
+#endif // _CUDA
 
-#ifdef USE_MKL
+#ifdef _MKL
   if (!_symmetric) {
     mkl_sparse_destroy(_mat_local_mkl);
   }
   if (_col_map->overlapping())
     mkl_sparse_destroy(_mat_remote_mkl);
-#endif // USE_MKL
+#endif // _MKL
 
 #if defined(_OPENMP_HOST) || defined(_SYCL)
   if (_symmetric) {
@@ -419,15 +419,40 @@ size_t Matrix<T>::format_size() const
 //-----------------------------------------------------------------------------
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1>
-Matrix<T>::mult(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const
+Matrix<T>::mult(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x, Device dev) const
 {
   if (_symmetric && _col_map->overlapping())
     return spmv_sym_overlap(x);
   if (_symmetric)
-    return spmv_sym(x);
+    return spmv_sym(x, dev);
   if (_col_map->overlapping())
     return spmv_overlap(x);
-  return (*_mat_local) * x;
+  if (dev == Device::gpu) {
+#ifdef _OPENMP_OFFLOAD
+    Eigen::Matrix<T, Eigen::Dynamic, 1> y(_mat_local->rows());
+    const T* x_ptr = x.data();
+    T* y_ptr = y.data();
+    spmv_openmp_offload(x_ptr, y_ptr);
+    return y;
+#else
+    throw runtime_error("Offloading to the GPU has not been enabled");
+#endif
+  } else {
+    return (*_mat_local) * x;
+  }
+}
+//-----------------------------------------------------------------------------
+template <typename T>
+void Matrix<T>::mult(T* x, T* y, Device dev) const
+{
+  if (_symmetric && _col_map->overlapping())
+    spmv_sym_overlap(x, y);
+  else if (_symmetric)
+    spmv_sym(x, y, dev);
+  else if (_col_map->overlapping())
+    spmv_overlap(x, y);
+  else
+    spmv(x, y, dev);
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -943,45 +968,20 @@ void Matrix<T>::tune_internal(const int nthreads)
 }
 #endif // _OPENMP_HOST || _SYCL
 //-----------------------------------------------------------------------------
-static MergeCoordinate merge_path_search(const int diagonal, const int nrows,
-                                         const int nnz, const int* rowptr)
+template <typename T>
+void Matrix<T>::spmv(const T* x, T* y, Device dev) const
 {
-#ifdef _SYCL
-  int row_min = sycl::max(diagonal - nnz, 0);
-  int row_max = sycl::min(diagonal, nrows);
+  if (dev == Device::gpu) {
+#ifdef _OPENMP_OFFLOAD
+    spmv_openmp_offload(x, y);
 #else
-  int row_min = max(diagonal - nnz, 0);
-  int row_max = min(diagonal, nrows);
+    throw runtime_error("Offloading to the GPU has not been enabled");
 #endif
-
-  // Binary search constraint: row_idx + val_idx = diagonal
-  // We are looking for the row_idx for which we can consume "diagonal" number
-  // of elements from both the rowptr and values array
-  while (row_min < row_max) {
-    int pivot = row_min + (row_max - row_min) / 2;
-    // The total number of elements I have consumed from both the rowptr and
-    // values array at row_idx==pivot is equal to the sum of rowptr[pivot + 1]
-    // (number of nonzeros including this row) and (pivot + 1) (the number of
-    // entries from rowptr)
-    if (pivot < nrows) {
-      if (rowptr[pivot + 1] + pivot + 1 <= diagonal) {
-        // Move downwards and discard top right of cross diagonal range
-        row_min = pivot + 1;
-      } else {
-        // Move upwards and discard bottom left of cross diagonal range
-        row_max = pivot;
-      }
-    }
+  } else {
+    Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>> y_eigen(y, _mat_local->rows());
+    Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> x_eigen(x, _mat_local->cols());
+    y_eigen = (*_mat_local) * x_eigen;
   }
-
-  MergeCoordinate path_coordinate;
-#ifdef _SYCL
-  path_coordinate.row_idx = sycl::min(row_min, nrows);
-#else
-  path_coordinate.row_idx = min(row_min, nrows);
-#endif
-  path_coordinate.val_idx = diagonal - row_min;
-  return path_coordinate;
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -1034,92 +1034,108 @@ Matrix<T>::spmv_overlap(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const
 }
 //-----------------------------------------------------------------------------
 template <typename T>
-void Matrix<T>::spmv_sym(const T* x, T* y) const
+void Matrix<T>::spmv_sym(const T* x, T* y, Device dev) const
 {
-  const int* rowptr = _mat_local->outerIndexPtr();
-  const int* colind = _mat_local->innerIndexPtr();
-  const T* values = _mat_local->valuePtr();
-  const int* rowptr_remote = _mat_remote->outerIndexPtr();
-  const int* colind_remote = _mat_remote->innerIndexPtr();
-  const T* values_remote = _mat_remote->valuePtr();
-  const T* diagonal = _mat_diagonal->data();
-
+  if (dev == Device::gpu) {
+#ifdef _OPENMP_OFFLOAD
+    spmv_sym_openmp_offload(x, y);
+#else
+    throw runtime_error("Offloading to the GPU has not been enabled");
+#endif
+  } else {
 #ifdef _OPENMP_HOST
-  #pragma omp parallel
-  {
-    const int tid = omp_get_thread_num();
-    const int nrows = rows();
-    const int row_offset = _row_split[tid];
-    T* y_local = _y_local + tid * nrows;
+    const int* rowptr = _mat_local->outerIndexPtr();
+    const int* colind = _mat_local->innerIndexPtr();
+    const T* values = _mat_local->valuePtr();
+    const int* rowptr_remote = _mat_remote->outerIndexPtr();
+    const int* colind_remote = _mat_remote->innerIndexPtr();
+    const T* values_remote = _mat_remote->valuePtr();
+    const T* diagonal = _mat_diagonal->data();
 
-    // Compute diagonal
-    for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
-      y[i] = diagonal[i] * x[i];
-    #pragma omp barrier
+#pragma omp parallel
+    {
+      const int tid = omp_get_thread_num();
+      const int nrows = rows();
+      const int row_offset = _row_split[tid];
+      T* y_local = _y_local + tid * nrows;
 
-    for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i) {
-      T y_tmp = 0;
+      // Compute diagonal
+      for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i)
+	y[i] = diagonal[i] * x[i];
+#pragma omp barrier
 
-      // Compute symmetric SpMV on local block - local vectors phase
+      for (int i = _row_split[tid]; i < _row_split[tid + 1]; ++i) {
+	T y_tmp = 0;
+
+	// Compute symmetric SpMV on local block - local vectors phase
+	for (int j = rowptr[i]; j < rowptr[i + 1]; ++j) {
+	  int col = colind[j];
+	  T val = values[j];
+	  y_tmp += val * x[col];
+	  if (col < row_offset) {
+	    y_local[col] += val * x[i];
+	  } else {
+	    y[col] += val * x[i];
+	  }
+	}
+
+	// Compute vanilla SpMV on remote block
+	for (int j = rowptr_remote[i]; j < rowptr_remote[i + 1]; ++j) {
+	  y_tmp += values_remote[j] * x[colind_remote[j]];
+	}
+
+	y[i] += y_tmp;
+      }
+#pragma omp barrier
+
+      // Compute symmetric SpMV on local block - reduction of conflicts phase
+      for (int i = _map_start[tid]; i < _map_end[tid]; ++i) {
+	int vid = _cnfl_map->vid[i];
+	int pos = _cnfl_map->pos[i];
+	y[pos] += _y_local[vid * nrows + pos];
+	_y_local[vid * nrows + pos] = 0.0;
+      }
+    }
+#else
+    const int* rowptr = _mat_local->outerIndexPtr();
+    const int* colind = _mat_local->innerIndexPtr();
+    const T* values = _mat_local->valuePtr();
+    const int* rowptr_remote = _mat_remote->outerIndexPtr();
+    const int* colind_remote = _mat_remote->innerIndexPtr();
+    const T* values_remote = _mat_remote->valuePtr();
+    const T* diagonal = _mat_diagonal->data();
+
+    for (int i = 0; i < _mat_local->rows(); ++i) {
+      T y_tmp = diagonal[i] * x[i];
+
+      // Compute symmetric SpMV on local block
       for (int j = rowptr[i]; j < rowptr[i + 1]; ++j) {
-        int col = colind[j];
-        T val = values[j];
-        y_tmp += val * x[col];
-        if (col < row_offset) {
-          y_local[col] += val * x[i];
-        } else {
-          y[col] += val * x[i];
-        }
+	int col = colind[j];
+	T val = values[j];
+	y_tmp += val * x[col];
+	y[col] += val * x[i];
       }
 
       // Compute vanilla SpMV on remote block
       for (int j = rowptr_remote[i]; j < rowptr_remote[i + 1]; ++j) {
-        y_tmp += values_remote[j] * x[colind_remote[j]];
+	y_tmp += values_remote[j] * x[colind_remote[j]];
       }
 
-      y[i] += y_tmp;
+      y[i] = y_tmp;
     }
-    #pragma omp barrier
-
-    // Compute symmetric SpMV on local block - reduction of conflicts phase
-    for (int i = _map_start[tid]; i < _map_end[tid]; ++i) {
-      int vid = _cnfl_map->vid[i];
-      int pos = _cnfl_map->pos[i];
-      y[pos] += _y_local[vid * nrows + pos];
-      _y_local[vid * nrows + pos] = 0.0;
-    }
-  }
-#else
-  for (int i = 0; i < _mat_local->rows(); ++i) {
-    T y_tmp = diagonal[i] * x[i];
-
-    // Compute symmetric SpMV on local block
-    for (int j = rowptr[i]; j < rowptr[i + 1]; ++j) {
-      int col = colind[j];
-      T val = values[j];
-      y_tmp += val * x[col];
-      y[col] += val * x[i];
-    }
-
-    // Compute vanilla SpMV on remote block
-    for (int j = rowptr_remote[i]; j < rowptr_remote[i + 1]; ++j) {
-      y_tmp += values_remote[j] * x[colind_remote[j]];
-    }
-
-    y[i] = y_tmp;
-  }
 #endif // _OPENMP_HOST
+  }
 }
 //-----------------------------------------------------------------------------
 template <typename T>
 Eigen::Matrix<T, Eigen::Dynamic, 1>
-Matrix<T>::spmv_sym(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const
+Matrix<T>::spmv_sym(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x, Device dev) const
 {
   Eigen::Matrix<T, Eigen::Dynamic, 1> y(_mat_local->rows());
   const T* x_ptr = x.data();
   T* y_ptr = y.data();
 
-  spmv_sym(x_ptr, y_ptr);
+  spmv_sym(x_ptr, y_ptr, dev);
 
   return y;
 }
@@ -1233,7 +1249,7 @@ Eigen::Matrix<T, Eigen::Dynamic, 1> Matrix<T>::spmv_sym_overlap(
   return y;
 }
 //-----------------------------------------------------------------------------
-#ifdef USE_MKL
+#ifdef _MKL
 template <>
 void Matrix<double>::mkl_init()
 {
@@ -1559,7 +1575,7 @@ Matrix<complex<float>>::transpmult(
   }
   return y;
 }
-#endif // USE_MKL
+#endif // _MKL
 //-----------------------------------------------------------------------------
 
 #ifdef _SYCL
@@ -1575,66 +1591,3 @@ template class spmv::Matrix<float>;
 template class spmv::Matrix<double>;
 // template class spmv::Matrix<complex<float>>;
 // template class spmv::Matrix<complex<double>>;
-
-// int compute_units =
-// FACTOR*device.get_info<sycl::info::device::max_compute_units>(); int
-// work_group_size = TEAM_SIZE; //
-// device.get_info<sycl::info::device::max_work_group_size>(); int
-// num_work_items = compute_units * work_group_size; int items_per_work_item =
-// (merge_path_length + num_work_items - 1) / num_work_items;
-// {
-//   auto merge_path_buff = sycl::buffer<MergeCoordinate>(_merge_path,
-//   sycl::range<1>(num_work_items + 1)); auto carry_row_buff =
-//   sycl::buffer<int>(_carry_row, sycl::range<1>(num_work_items)); auto
-//   carry_val_buff = sycl::buffer<T>(_carry_val,
-//   sycl::range<1>(num_work_items));
-
-//   event = queue.submit([&](sycl::handler& h) {
-// 	  h.depends_on(dependencies);
-// 	  auto rowptr = _d_rowptr_local->template
-// get_access<acc::mode::read>(h); 	  auto colind =
-// _d_colind_local->template get_access<acc::mode::read>(h); 	  auto values =
-// _d_values_local->template get_access<acc::mode::read>(h); 	  auto
-// merge_path = merge_path_buff.get_access<acc::mode::write>(h); 	  auto
-// carry_row = carry_row_buff.get_access<acc::mode::write>(h); 	  auto carry_val
-// = carry_val_buff.template get_access<acc::mode::read_write>(h);
-
-// 	  h.parallel_for(
-// 			 sycl::nd_range<1>(num_work_items, work_group_size),
-// 			 [=](sycl::nd_item<1> item) {
-// 			   int tid = item.get_global_id(0);
-
-// 			   MergeCoordinate path_start = merge_path[tid];
-// 			   MergeCoordinate path_end = merge_path[tid + 1];
-
-// 			   T sum = 0;
-// 			   for (int i = 0; i < items_per_work_item; i++) {
-// 			     if (path_start.val_idx < rowptr[path_start.row_idx
-// + 1])
-// {
-// 			       // Accumulate and move down
-// 			       sum += values[path_start.val_idx] *
-// b[colind[path_start.val_idx]]; path_start.val_idx++; } else {
-// 			       // Flush row and move right
-// 			       if (path_start.row_idx < nrows) {
-// 				 y[path_start.row_idx] = sum;
-// 				 sum = 0;
-// 				 path_start.row_idx++;
-// 			       }
-// 			     }
-// 			   }
-
-// 			   // Save carry
-// 			   carry_row[tid] = path_end.row_idx;
-// 			   carry_val[tid] = sum;
-// 			 });
-// 	});
-//   queue.wait();
-// }
-
-// // Carry fix up for rows spanning multiple threads
-// for (int tid = 0; tid < num_work_items - 1; tid++) {
-//   if (_carry_row[tid] < nrows) {
-// 	y[_carry_row[tid]] += _carry_val[tid];
-//   }
-// }

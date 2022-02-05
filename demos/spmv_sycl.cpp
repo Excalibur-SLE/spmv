@@ -77,16 +77,20 @@ void spmv_main(int argc, char** argv)
     auto q_buf = sycl::buffer(q, sycl::range<1>(M));
 
     for (int i = 0; i < n_apply; ++i) {
+
+      MPI_Barrier(MPI_COMM_WORLD);
       timer_start = std::chrono::system_clock::now();
       l2g->update(psp);
       timer_end = std::chrono::system_clock::now();
-      timings["2.SparseUpdate"] += (timer_end - timer_start);
+      timings["2.SpUpdate"] += (timer_end - timer_start);
 
+      MPI_Barrier(MPI_COMM_WORLD);
       timer_start = std::chrono::system_clock::now();
       A.mult(psp_buf, q_buf, queue);
       timer_end = std::chrono::system_clock::now();
       timings["3.SpMV"] += (timer_end - timer_start);
 
+      MPI_Barrier(MPI_COMM_WORLD);
       timer_start = std::chrono::system_clock::now();
       queue
           .submit([&](cl::sycl::handler& cgh) {

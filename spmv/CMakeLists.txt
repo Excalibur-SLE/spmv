@@ -29,12 +29,12 @@ add_library(${PROJECT_NAME}::${LIB_NAME} ALIAS ${LIB_NAME})
 # Set header file search path for build and install directories
 # This is not needed because the header files are in the same directory
 # as the source files
-target_include_directories(${LIB_NAME} PRIVATE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  )
-target_include_directories(${LIB_NAME} PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+target_include_directories(${LIB_NAME}
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   )
 
 # Create an export header to control symbol visibility.
@@ -42,25 +42,39 @@ include(GenerateExportHeader)
 generate_export_header(${LIB_NAME})
 
 # Set the header files that need to be installed
-set_target_properties(${LIB_NAME} PROPERTIES PUBLIC_HEADER "spmv.h;L2GMap.h;Matrix.h;read_petsc.h;cg.h")
+set_target_properties(${LIB_NAME}
+  PROPERTIES PUBLIC_HEADER
+    "spmv.h;L2GMap.h;Matrix.h;read_petsc.h;cg.h"
+  )
 
 # Set optional definitions
-target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${ENABLE_OPENMP}>:_OPENMP_HOST>)
-target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${ENABLE_OPENMP_OFFLOAD}>:_OPENMP_OFFLOAD>)
-target_compile_definitions(${LIB_NAME} PRIVATE $<$<OR:$<BOOL:${ENABLE_HIPSYCL}>,$<BOOL:${ENABLE_DPCPP}>>:_SYCL>)
-target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${ENABLE_CUDA}>:_CUDA>)
-target_compile_definitions(${LIB_NAME} PRIVATE $<$<BOOL:${BLAS_FOUND}>:_MKL>)
+target_compile_definitions(${LIB_NAME}
+  PRIVATE
+    $<$<BOOL:${ENABLE_OPENMP}>:_OPENMP_HOST>
+    $<$<BOOL:${ENABLE_OPENMP_OFFLOAD}>:_OPENMP_OFFLOAD>
+    $<$<OR:$<BOOL:${ENABLE_HIPSYCL}>,$<BOOL:${ENABLE_DPCPP}>>:_SYCL>
+    $<$<BOOL:${ENABLE_CUDA}>:_CUDA>
+    $<$<BOOL:${BLAS_FOUND}>:_MKL>
+  )
 # Eigen-specific definitions
-target_compile_definitions(${LIB_NAME} PUBLIC "EIGEN_MAX_ALIGN_BYTES=32")
+target_compile_definitions(${LIB_NAME}
+  PUBLIC "EIGEN_MAX_ALIGN_BYTES=32"
+  )
 
 # Set library dependencies
-target_link_libraries(${LIB_NAME} PUBLIC Eigen3::Eigen MPI::MPI_C)
-target_link_libraries(${LIB_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+target_link_libraries(${LIB_NAME}
+  PUBLIC Eigen3::Eigen MPI::MPI_C
+  PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
+  )
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18)
   # Can use imported target BLAS::BLAS for version >= 3.18
-  target_link_libraries(${LIB_NAME} PRIVATE $<$<BOOL:${BLAS_FOUND}>:BLAS::BLAS>)
+  target_link_libraries(${LIB_NAME}
+    PRIVATE $<$<BOOL:${BLAS_FOUND}>:BLAS::BLAS>
+    )
 else()
-  target_link_libraries(${LIB_NAME} PRIVATE $<$<BOOL:${BLAS_FOUND}>:${BLAS_LIBRARIES}>)
+  target_link_libraries(${LIB_NAME}
+    PRIVATE $<$<BOOL:${BLAS_FOUND}>:${BLAS_LIBRARIES}>
+    )
 endif()
 
 # Include optional code
@@ -82,7 +96,8 @@ install(TARGETS ${LIB_NAME}
 install(EXPORT ${PROJECT_NAME}
   FILE ${PROJECT_NAME}Config.cmake
   NAMESPACE ${PROJECT_NAME}::
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake)
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake
+  )
 
 install(FILES
   ${CMAKE_CURRENT_BINARY_DIR}/${LIB_NAME}_export.h

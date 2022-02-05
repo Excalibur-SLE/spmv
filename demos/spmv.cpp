@@ -71,18 +71,23 @@ void spmv_main(int argc, char** argv)
 
   // Temporary variable
   Eigen::VectorXd q(M);
+  l2g->update(psp.data());
   q = A.mult(psp, device);
   for (int i = 0; i < n_apply; ++i) {
+
+    MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
     l2g->update(psp.data());
     timer_end = std::chrono::system_clock::now();
-    timings["2.SparseUpdate"] += (timer_end - timer_start);
+    timings["2.SpUpdate"] += (timer_end - timer_start);
 
+    MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
     q = A.mult(psp, device);
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 
+    MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
     psp.head(M) = q;
     timer_end = std::chrono::system_clock::now();

@@ -102,17 +102,21 @@ void spmv_main(int argc, char** argv)
   cudaStreamSynchronize(stream);
 
   for (int i = 0; i < n_apply; ++i) {
+
+    MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
     l2g->update(d_psp, stream);
     timer_end = std::chrono::system_clock::now();
-    timings["2.SparseUpdate"] += (timer_end - timer_start);
+    timings["2.SpUpdate"] += (timer_end - timer_start);
 
+    MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
     A.mult(d_psp, d_q, stream);
     cudaStreamSynchronize(stream);
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 
+    MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
     cudaMemcpy(d_psp, d_q, M * sizeof(double), cudaMemcpyDeviceToDevice);
     timer_end = std::chrono::system_clock::now();

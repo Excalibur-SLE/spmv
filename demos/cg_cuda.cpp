@@ -46,7 +46,12 @@ void cg_main(int argc, char** argv)
   // Read matrix
   bool symmetric = false;
   spmv::CommunicationModel cm = spmv::CommunicationModel::p2p_blocking;
-  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, symmetric, cm);
+  std::shared_ptr<spmv::DeviceExecutor> exec_host
+      = spmv::ReferenceExecutor::create();
+  std::shared_ptr<spmv::CudaExecutor> exec
+      = spmv::CudaExecutor::create(0, exec_host);
+  spmv::Matrix<double> A = spmv::read_petsc_binary_matrix(argv1, MPI_COMM_WORLD,
+                                                          exec, symmetric, cm);
 
   // Read vector
   auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
@@ -67,7 +72,8 @@ void cg_main(int argc, char** argv)
   // Turn on profiling for solver only
   MPI_Pcontrol(1);
   timer_start = std::chrono::system_clock::now();
-  auto [x_dev, num_its] = spmv::cg(MPI_COMM_WORLD, A, b.data(), max_its, rtol);
+  auto [x_dev, num_its]
+      = spmv::cg(MPI_COMM_WORLD, *exec, A, b.data(), max_its, rtol);
   timer_end = std::chrono::system_clock::now();
   timings["1.Solve"] += (timer_end - timer_start);
   MPI_Pcontrol(0);

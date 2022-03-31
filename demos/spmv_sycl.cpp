@@ -34,9 +34,12 @@ void spmv_main(int argc, char** argv)
   // spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 20000000);
   // Or read matrix from file created with "-ksp_view_mat binary" option
   bool symmetric = false;
-  spmv::Matrix A
-      = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, symmetric);
-  A.tune(queue);
+  spmv::CommunicationModel cm = spmv::CommunicationModel::p2p_blocking;
+  std::shared_ptr<spmv::DeviceExecutor> exec
+      = spmv::SyclExecutor::create(&queue);
+  spmv::Matrix<double> A = spmv::read_petsc_binary_matrix(argv1, MPI_COMM_WORLD,
+                                                          exec, symmetric, cm);
+
   auto timer_end = std::chrono::system_clock::now();
   timings["0.MatCreate"] += (timer_end - timer_start);
 
@@ -50,7 +53,8 @@ void spmv_main(int argc, char** argv)
     std::cout << "Creating vector of size " << N << "\n";
 
   timer_start = std::chrono::system_clock::now();
-  double* psp = new double[l2g->local_size() + l2g->num_ghosts()]();
+  double* psp = sycl::malloc_shared<double>(
+      l2g->local_size() + l2g->num_ghosts(), queue);
 
   // Set up values in local range
   int r0 = l2g->global_offset();
@@ -68,45 +72,37 @@ void spmv_main(int argc, char** argv)
     std::cout << "Applying matrix " << n_apply << " times\n";
 
   // Temporary vector
-  double* q = new double[M]();
+  double* q = sycl::malloc_shared<double>(M, queue);
   double pnorm_local;
-  {
-    // Create SYCL buffers for vectors
-    auto psp_buf = sycl::buffer(
-        psp, sycl::range<1>(l2g->local_size() + l2g->num_ghosts()));
-    auto q_buf = sycl::buffer(q, sycl::range<1>(M));
 
-    for (int i = 0; i < n_apply; ++i) {
+  // Warm-up
+  l2g->update(psp);
+  A.mult(psp, q);
+  exec->synchronize();
 
-      MPI_Barrier(MPI_COMM_WORLD);
-      timer_start = std::chrono::system_clock::now();
-      l2g->update(psp);
-      timer_end = std::chrono::system_clock::now();
-      timings["2.SpUpdate"] += (timer_end - timer_start);
+  for (int i = 0; i < n_apply; ++i) {
 
-      MPI_Barrier(MPI_COMM_WORLD);
-      timer_start = std::chrono::system_clock::now();
-      A.mult(psp_buf, q_buf, queue);
-      timer_end = std::chrono::system_clock::now();
-      timings["3.SpMV"] += (timer_end - timer_start);
+    MPI_Barrier(MPI_COMM_WORLD);
+    timer_start = std::chrono::system_clock::now();
+    l2g->update(psp);
+    timer_end = std::chrono::system_clock::now();
+    timings["2.SpUpdate"] += (timer_end - timer_start);
 
-      MPI_Barrier(MPI_COMM_WORLD);
-      timer_start = std::chrono::system_clock::now();
-      queue
-          .submit([&](cl::sycl::handler& cgh) {
-            auto q = q_buf.get_access<cl::sycl::access::mode::read>(cgh);
-            auto psp
-                = psp_buf.get_access<cl::sycl::access::mode::discard_write>(
-                    cgh);
-            cgh.copy(q, psp);
-          })
-          .wait();
-      timer_end = std::chrono::system_clock::now();
-      timings["4.Copy"] += (timer_end - timer_start);
-    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    timer_start = std::chrono::system_clock::now();
+    A.mult(psp, q);
+    exec->synchronize();
+    timer_end = std::chrono::system_clock::now();
+    timings["3.SpMV"] += (timer_end - timer_start);
 
-    spmv::squared_norm(M, psp_buf, &pnorm_local, queue);
+    MPI_Barrier(MPI_COMM_WORLD);
+    timer_start = std::chrono::system_clock::now();
+    queue.copy(q, psp, M).wait();
+    timer_end = std::chrono::system_clock::now();
+    timings["4.Copy"] += (timer_end - timer_start);
   }
+
+  spmv::squared_norm(M, psp, &pnorm_local, queue);
 
   double pnorm;
   MPI_Allreduce(&pnorm_local, &pnorm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
@@ -139,6 +135,9 @@ void spmv_main(int argc, char** argv)
     std::cout << "----------------------------\n";
     std::cout << "norm = " << pnorm << "\n";
   }
+
+  sycl::free(psp, queue);
+  sycl::free(q, queue);
 }
 
 //-----------------------------------------------------------------------------

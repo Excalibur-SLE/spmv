@@ -31,10 +31,9 @@ function(add_spmv_test)
 endfunction()
 
 # Define tests
+add_spmv_test(TARGET test_spmv SOURCES test_spmv.cpp)
 if(ENABLE_OPENMP)
-  add_spmv_test(TARGET test_spmv_openmp SOURCES test_spmv.cpp ENABLE_OPENMP)
-else()
-  add_spmv_test(TARGET test_spmv SOURCES test_spmv.cpp)
+  add_spmv_test(TARGET test_spmv_openmp SOURCES test_spmv_openmp.cpp ENABLE_OPENMP)
 endif()
 if(ENABLE_OPENMP_OFFLOAD)
   add_spmv_test(TARGET test_spmv_openmp_offload SOURCES test_spmv_openmp_offload.cpp)

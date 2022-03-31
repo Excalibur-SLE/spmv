@@ -1,11 +1,12 @@
 // Copyright (C) 2018-2020 Chris Richardson (chris@bpi.cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include "CreateA.h"
 #include <Eigen/Sparse>
 #include <memory>
 #include <set>
-#include <spmv/L2GMap.h>
+
+#include "CreateA.h"
+#include <spmv/spmv.h>
 
 //-----------------------------------------------------------------------------
 // Divide size into N ~equal chunks
@@ -77,13 +78,14 @@ spmv::Matrix<double> create_A(MPI_Comm comm, int N)
   }
 
   std::vector<std::int64_t> ghosts(ghost_indices.begin(), ghost_indices.end());
-  auto col_l2g = std::make_shared<spmv::L2GMap>(comm, M, ghosts);
-  auto row_l2g
-      = std::make_shared<spmv::L2GMap>(comm, M, std::vector<std::int64_t>());
+  std::shared_ptr<spmv::ReferenceExecutor> exec
+      = spmv::ReferenceExecutor::create();
+  auto col_l2g = std::make_shared<spmv::L2GMap>(comm, M, ghosts, exec);
+  auto row_l2g = std::make_shared<spmv::L2GMap>(
+      comm, M, std::vector<std::int64_t>(), exec);
 
   // Rebuild A using local indices
-  auto Alocal = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>(
-      M, M + ghosts.size());
+  Eigen::SparseMatrix<double, Eigen::RowMajor> Alocal(M, M + ghosts.size());
   std::vector<Eigen::Triplet<double>> vals;
   std::int32_t* Aouter = A.outerIndexPtr();
   std::int32_t* Ainner = A.innerIndexPtr();
@@ -96,8 +98,8 @@ spmv::Matrix<double> create_A(MPI_Comm comm, int N)
       vals.push_back(Eigen::Triplet<double>(row, col, val));
     }
   }
-  Alocal->setFromTriplets(vals.begin(), vals.end());
+  Alocal.setFromTriplets(vals.begin(), vals.end());
 
-  return spmv::Matrix<double>(Alocal, col_l2g, row_l2g);
+  return spmv::Matrix<double>(Alocal, col_l2g, row_l2g, exec);
 }
 //-----------------------------------------------------------------------------

@@ -114,28 +114,40 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   for (int i = 0; i < nrows_local + 1; i++)
     rowptr_local[i] -= row_offset;
 
+  // Define device executor
+  std::shared_ptr<spmv::DeviceExecutor> exec
+      = spmv::ReferenceExecutor::create();
+  // Create matrix
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
-      MPI_COMM_WORLD, rowptr_local, colind_local, values_local, nrows_local,
-      ncols_local, {}, col_ghosts, symmetric, cm);
+      MPI_COMM_WORLD, exec, rowptr_local, colind_local, values_local,
+      nrows_local, ncols_local, {}, col_ghosts, symmetric, cm);
 
   // Define local vectors
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
-  Eigen::VectorXd y_local(nrows_local);
-  Eigen::VectorXd x_local(l2g->local_size() + l2g->num_ghosts());
-  // Initialize from global vector
-  memcpy(x_local.data(), x.data() + row_start, ncols_local * sizeof(double));
+  double *y_local = nullptr, *x_local = nullptr;
+  y_local = exec->alloc<double>(nrows_local);
+  x_local = exec->alloc<double>(l2g->local_size() + l2g->num_ghosts());
+  exec->copy_from<double>(x_local, exec->get_host(), x.data() + row_start,
+                          ncols_local);
+
+  // Update input vector from neighbors
+  l2g->update(x_local);
 
   // Compute SpMV
-  l2g->update(x_local.data());
-  y_local = A->mult(x_local);
+  A->mult(x_local, y_local);
 
-  double norm = y_local.squaredNorm();
   double norm_test;
-  MPI_Allreduce(&norm, &norm_test, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-  norm_test = sqrt(norm_test);
+  {
+    Eigen::Map<Eigen::VectorXd> y_local_tmp(y_local, nrows_local);
+    double norm = y_local_tmp.squaredNorm();
+    MPI_Allreduce(&norm, &norm_test, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    norm_test = sqrt(norm_test);
+  }
 
   // Cleanup
   delete A;
+  exec->free(y_local);
+  exec->free(x_local);
 
   if (essentially_equal(norm_test, norm_ref,
                         std::numeric_limits<double>::epsilon())) {
@@ -149,17 +161,7 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
 
 int main(int argc, char** argv)
 {
-#ifdef _OPENMP
-  int provided;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-  if (provided < MPI_THREAD_FUNNELED) {
-    std::cerr << "The threading support level is lesser than required"
-              << std::endl;
-    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-  }
-#else
   MPI_Init(&argc, &argv);
-#endif
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -171,7 +173,7 @@ int main(int argc, char** argv)
   symmetric = false;
   if (mpi_rank == 0)
     std::cout << "Running vanilla SpMV on CPU with blocking collective "
-                 "communication... "
+                 "communication..."
               << std::endl;
   cm = spmv::CommunicationModel::collective_blocking;
   ret &= test_spmv(symmetric, cm);
@@ -179,7 +181,7 @@ int main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout << "Running vanilla SpMV on CPU with non-blocking collective "
-                 "communication... "
+                 "communication..."
               << std::endl;
   cm = spmv::CommunicationModel::collective_nonblocking;
   ret &= test_spmv(symmetric, cm);
@@ -187,7 +189,7 @@ int main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout << "Running vanilla SpMV on CPU with blocking point-to-point "
-                 "communication... "
+                 "communication..."
               << std::endl;
   cm = spmv::CommunicationModel::p2p_blocking;
   ret &= test_spmv(symmetric, cm);
@@ -195,7 +197,7 @@ int main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout << "Running vanilla SpMV on CPU with non-blocking point-to-point "
-                 "communication... "
+                 "communication..."
               << std::endl;
   cm = spmv::CommunicationModel::p2p_nonblocking;
   ret &= test_spmv(symmetric, cm);
@@ -203,19 +205,36 @@ int main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout
-        << "Running vanilla SpMV on CPU with one-sided active communication... "
+        << "Running vanilla SpMV on CPU with one-sided active communication..."
         << std::endl;
   cm = spmv::CommunicationModel::onesided_put_active;
   ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
-    std::cout << "Running vanilla SpMV on CPU with one-sided passive "
-                 "communication... "
-              << std::endl;
+    std::cout
+        << "Running vanilla SpMV on CPU with one-sided passive communication..."
+        << std::endl;
   cm = spmv::CommunicationModel::onesided_put_passive;
   ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);
+
+  // if (mpi_rank == 0)
+  //   std::cout
+  //       << "Running vanilla SpMV on CPU with shared memory communication... "
+  //       << std::endl;
+  // cm = spmv::CommunicationModel::shmem;
+  // ret &= test_spmv(symmetric, cm);
+  // MPI_Barrier(MPI_COMM_WORLD);
+
+  // if (mpi_rank == 0)
+  //   std::cout << "Running vanilla SpMV on CPU with shared memory no
+  //   duplicates "
+  //                "communication... "
+  //             << std::endl;
+  // cm = spmv::CommunicationModel::shmem_nodup;
+  // ret &= test_spmv(symmetric, cm);
+  // MPI_Barrier(MPI_COMM_WORLD);
 
   symmetric = true;
   if (mpi_rank == 0)
@@ -231,38 +250,6 @@ int main(int argc, char** argv)
                  "communication... "
               << std::endl;
   cm = spmv::CommunicationModel::collective_nonblocking;
-  ret &= test_spmv(symmetric, cm);
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on CPU with blocking point-to-point "
-                 "communication... "
-              << std::endl;
-  cm = spmv::CommunicationModel::p2p_blocking;
-  ret &= test_spmv(symmetric, cm);
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on CPU with non-blocking "
-                 "point-to-point communication... "
-              << std::endl;
-  cm = spmv::CommunicationModel::p2p_nonblocking;
-  ret &= test_spmv(symmetric, cm);
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on CPU with one-sided active "
-                 "communication... "
-              << std::endl;
-  cm = spmv::CommunicationModel::onesided_put_active;
-  ret &= test_spmv(symmetric, cm);
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on CPU with one-sided passive "
-                 "communication... "
-              << std::endl;
-  cm = spmv::CommunicationModel::onesided_put_passive;
   ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);
 

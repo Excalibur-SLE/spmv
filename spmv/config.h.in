@@ -18,21 +18,3 @@
 #ifndef _CUDA
 #cmakedefine _CUDA
 #endif
-
-namespace spmv
-{
-
-// MPI communication model
-enum class CommunicationModel {
-  p2p_blocking,
-  p2p_nonblocking,
-  collective_blocking,
-  collective_nonblocking,
-  onesided_put_active,
-  onesided_put_passive
-};
-
-// Target device
-enum class Device { cpu, gpu };
-
-} // namespace spmv

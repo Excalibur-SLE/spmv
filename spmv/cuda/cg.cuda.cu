@@ -4,7 +4,8 @@
 #include "L2GMap.h"
 #include "Matrix.h"
 #include "cg_cuda.h"
-#include "helper_cuda.h"
+#include "cuda_executor.h"
+#include "cuda_helper.h"
 
 #include <cublas_v2.h>
 
@@ -35,8 +36,9 @@ __global__ void compute_sqrt(double* in, double* out)
   }
 }
 //-----------------------------------------------------------------------------
-std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
-                                  double* b, int kmax, double rtol)
+std::tuple<double*, int> spmv::cg(MPI_Comm comm, spmv::CudaExecutor& exec,
+                                  const spmv::Matrix<double>& A, double* b,
+                                  int kmax, double rtol)
 {
   int mpi_rank;
   MPI_Comm_rank(comm, &mpi_rank);
@@ -56,65 +58,41 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
   cudaStreamCreate(&stream1);
   cudaStreamCreate(&stream2);
 
-  // Get handle to the CUBLAS context
-  cublasHandle_t cublas_handle = 0;
-  CHECK_CUBLAS(cublasCreate(&cublas_handle));
-  CHECK_CUBLAS(cublasSetPointerMode(cublas_handle, CUBLAS_POINTER_MODE_DEVICE));
+  CHECK_CUBLAS(cublasSetPointerMode(exec.get_cublas_handle(),
+                                    CUBLAS_POINTER_MODE_DEVICE));
 
   // Allocate device pointers for vectors
-  double* d_x = nullptr;
-  double* d_p = nullptr;
-  double* d_r = nullptr;
-  double* d_Ap = nullptr;
+  double* d_x = exec.alloc<double>(N_padded);
+  double* d_p = exec.alloc<double>(N_padded);
+  double* d_r = exec.alloc<double>(M);
+  double* d_Ap = exec.alloc<double>(M);
+  exec.copy_from<double>(d_p, exec.get_host(), b, M);
+  exec.copy<double>(d_r, d_p, M);
 
-  CHECK_CUDA(cudaMalloc((void**)&d_x, N_padded * sizeof(double)));
-  CHECK_CUDA(cudaMalloc((void**)&d_p, N_padded * sizeof(double)));
-  CHECK_CUDA(cudaMalloc((void**)&d_r, M * sizeof(double)));
-  CHECK_CUDA(cudaMalloc((void**)&d_Ap, M * sizeof(double)));
-  // FIXME if there are more DMA engines per direction maybe overlap
-  // Use asynchronous memory copies to hide launch overheads
-  CHECK_CUDA(cudaMemcpyAsync(d_p, b, M * sizeof(double), cudaMemcpyHostToDevice,
-                             stream1));
-  CHECK_CUDA(cudaMemcpyAsync(d_r, d_p, M * sizeof(double),
-                             cudaMemcpyDeviceToDevice, stream1));
-
-  double* d_alpha = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_alpha, sizeof(double)));
-  double* d_neg_alpha = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_neg_alpha, sizeof(double)));
-  double* d_beta = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_beta, sizeof(double)));
-
-  double* d_rnorm0 = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_rnorm0, sizeof(double)));
-  double* d_rnorm_old = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_rnorm_old, sizeof(double)));
-  double* d_rnorm_new = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_rnorm_new, sizeof(double)));
-  double* d_rnorm_local = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_rnorm_local, sizeof(double)));
-
-  double* d_pdotAp_local = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_pdotAp_local, sizeof(double)));
-  double* d_pdotAp = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_pdotAp, sizeof(double)));
-
+  double* d_alpha = exec.alloc<double>(1);
+  double* d_neg_alpha = exec.alloc<double>(1);
+  double* d_beta = exec.alloc<double>(1);
+  double* d_rnorm0 = exec.alloc<double>(1);
+  double* d_rnorm_old = exec.alloc<double>(1);
+  double* d_rnorm_new = exec.alloc<double>(1);
+  double* d_rnorm_local = exec.alloc<double>(1);
+  double* d_pdotAp_local = exec.alloc<double>(1);
+  double* d_pdotAp = exec.alloc<double>(1);
   double scalar_one = 1;
-  double* d_scalar_one = nullptr;
-  CHECK_CUDA(cudaMalloc((void**)&d_scalar_one, sizeof(double)));
-  CHECK_CUDA(cudaMemcpyAsync(d_scalar_one, &scalar_one, sizeof(double),
-                             cudaMemcpyHostToDevice, stream1));
+  double* d_scalar_one = exec.alloc<double>(1);
+  exec.copy_from<double>(d_scalar_one, exec.get_host(), &scalar_one, 1);
 
-  CHECK_CUBLAS(cublasSetStream(cublas_handle, stream1));
-  CHECK_CUBLAS(cublasDdot(cublas_handle, M, d_r, 1, d_r, 1, d_rnorm_local));
+  exec.set_cuda_stream(stream1);
+  CHECK_CUBLAS(
+      cublasDdot(exec.get_cublas_handle(), M, d_r, 1, d_r, 1, d_rnorm_local));
   cudaStreamSynchronize(stream1);
   MPI_Allreduce(d_rnorm_local, d_rnorm0, 1, MPI_DOUBLE, MPI_SUM, comm);
   double rnorm0;
+  //  exec.copy_to<double>(d_scalar_one, exec.get_host(), scalar_one, 1);
   CHECK_CUDA(
       cudaMemcpy(&rnorm0, d_rnorm0, sizeof(double), cudaMemcpyDeviceToHost));
   rnorm0 = sqrt(rnorm0);
-  CHECK_CUDA(
-      cudaMemcpy(d_rnorm_old, &rnorm0, sizeof(double), cudaMemcpyHostToDevice));
+  exec.copy_from<double>(d_rnorm_old, exec.get_host(), &rnorm0, 1);
 
   // Iterations of CG
   int k = 0;
@@ -124,11 +102,12 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
     ++k;
 
     // Ap = A.p
-    col_l2g->update(d_p, stream1);
-    A.mult(d_p, d_Ap, stream1);
+    col_l2g->update(d_p);
+    A.mult(d_p, d_Ap);
 
     // Calculate alpha = r.r/p.Ap
-    CHECK_CUBLAS(cublasDdot(cublas_handle, M, d_p, 1, d_Ap, 1, d_pdotAp_local));
+    CHECK_CUBLAS(cublasDdot(exec.get_cublas_handle(), M, d_p, 1, d_Ap, 1,
+                            d_pdotAp_local));
     CHECK_CUDA(cudaStreamSynchronize(stream1));
     MPI_Allreduce(d_pdotAp_local, d_pdotAp, 1, MPI_DOUBLE, MPI_SUM, comm);
     compute_alpha<<<1, 1, 0, stream1>>>(d_rnorm_old, d_pdotAp, d_alpha,
@@ -139,14 +118,17 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
     // These operations can be done in parallel, so launch in seperate streams
     // x = x + alpha*p
     CHECK_CUDA(cudaStreamWaitEvent(stream2, event));
-    CHECK_CUBLAS(cublasSetStream(cublas_handle, stream2));
-    CHECK_CUBLAS(cublasDaxpy(cublas_handle, M, d_alpha, d_p, 1, d_x, 1));
+    CHECK_CUBLAS(cublasSetStream(exec.get_cublas_handle(), stream2));
+    CHECK_CUBLAS(
+        cublasDaxpy(exec.get_cublas_handle(), M, d_alpha, d_p, 1, d_x, 1));
     // r = r - alpha*Ap
-    CHECK_CUBLAS(cublasSetStream(cublas_handle, stream1));
-    CHECK_CUBLAS(cublasDaxpy(cublas_handle, M, d_neg_alpha, d_Ap, 1, d_r, 1));
+    CHECK_CUBLAS(cublasSetStream(exec.get_cublas_handle(), stream1));
+    CHECK_CUBLAS(
+        cublasDaxpy(exec.get_cublas_handle(), M, d_neg_alpha, d_Ap, 1, d_r, 1));
 
     // Update rnorm
-    CHECK_CUBLAS(cublasDdot(cublas_handle, M, d_r, 1, d_r, 1, d_rnorm_local));
+    CHECK_CUBLAS(
+        cublasDdot(exec.get_cublas_handle(), M, d_r, 1, d_r, 1, d_rnorm_local));
     cudaStreamSynchronize(stream1);
     MPI_Allreduce(d_rnorm_local, d_rnorm_new, 1, MPI_DOUBLE, MPI_SUM, comm);
     compute_sqrt<<<1, 1, 0, stream1>>>(d_rnorm_new, d_rnorm_new);
@@ -164,8 +146,9 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
 
     // Update p.
     // p = r + beta*p
-    CHECK_CUBLAS(cublasDscal(cublas_handle, M, d_beta, d_p, 1));
-    CHECK_CUBLAS(cublasDaxpy(cublas_handle, M, d_scalar_one, d_r, 1, d_p, 1));
+    CHECK_CUBLAS(cublasDscal(exec.get_cublas_handle(), M, d_beta, d_p, 1));
+    CHECK_CUBLAS(
+        cublasDaxpy(exec.get_cublas_handle(), M, d_scalar_one, d_r, 1, d_p, 1));
   }
 
   // Cleanup
@@ -183,7 +166,6 @@ std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,
   CHECK_CUDA(cudaFree(d_rnorm_local));
   CHECK_CUDA(cudaFree(d_pdotAp_local));
   CHECK_CUDA(cudaFree(d_pdotAp));
-  CHECK_CUBLAS(cublasDestroy(cublas_handle));
 
   return std::make_tuple(d_x, k);
 }

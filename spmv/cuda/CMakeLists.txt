@@ -1,6 +1,7 @@
 target_sources(${LIB_NAME} PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/L2GMap.cu
-  ${CMAKE_CURRENT_SOURCE_DIR}/Matrix.cu
+  ${CMAKE_CURRENT_SOURCE_DIR}/cuda_executor.cu
+  ${CMAKE_CURRENT_SOURCE_DIR}/coo_kernels.cuda.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/csr_kernels.cuda.cu
   ${CMAKE_CURRENT_SOURCE_DIR}/cg.cu
   )
 
@@ -43,8 +44,7 @@ endif()
 target_include_directories(${LIB_NAME} PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
   target_link_libraries(${LIB_NAME}
-    PUBLIC CUDA::cudart
-    PRIVATE CUDA::cublas CUDA::cusparse
+    PUBLIC CUDA::cudart CUDA::cublas CUDA::cusparse
     )
 else()
   target_link_libraries(${LIB_NAME}

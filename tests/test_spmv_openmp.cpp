@@ -2,6 +2,7 @@
 // SPDX-License-Identifier:    MIT
 
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <iostream>
 #include <limits>
 #include <mpi.h>
@@ -35,7 +36,7 @@ static std::vector<int> compute_ranges(int size, int N)
   return ranges;
 }
 
-static bool test_spmv(bool symmetric)
+static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
 {
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
@@ -64,7 +65,7 @@ static bool test_spmv(bool symmetric)
   for (int i = 0; i < N; ++i) {
     y_ref(i) = 0.0;
     for (int j = rowptr[i]; j < rowptr[i + 1]; ++j) {
-      y_ref(i) += values[j] * x[colind[j]];
+      y_ref(i) += values[j] * x(colind[j]);
     }
   }
   double norm_ref = y_ref.norm();
@@ -114,12 +115,10 @@ static bool test_spmv(bool symmetric)
     rowptr_local[i] -= row_offset;
 
   // Define device executor
-  std::shared_ptr<spmv::DeviceExecutor> exec
-      = spmv::OmpOffloadExecutor::create();
-  // Create matrix
+  std::shared_ptr<spmv::DeviceExecutor> exec = spmv::OmpExecutor::create();
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
       MPI_COMM_WORLD, exec, rowptr_local, colind_local, values_local,
-      nrows_local, ncols_local, {}, col_ghosts, symmetric);
+      nrows_local, ncols_local, {}, col_ghosts, symmetric, cm);
 
   // Define local vectors
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
@@ -137,9 +136,7 @@ static bool test_spmv(bool symmetric)
 
   double norm_test;
   {
-    Eigen::VectorXd y_local_tmp(nrows_local);
-    exec->copy_to<double>(y_local_tmp.data(), exec->get_host(), y_local,
-                          nrows_local);
+    Eigen::Map<Eigen::VectorXd> y_local_tmp(y_local, nrows_local);
     double norm = y_local_tmp.squaredNorm();
     MPI_Allreduce(&norm, &norm_test, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     norm_test = sqrt(norm_test);
@@ -175,18 +172,21 @@ int main(int argc, char** argv)
 
   bool ret = true;
   bool symmetric;
+  spmv::CommunicationModel cm;
 
   symmetric = false;
   if (mpi_rank == 0)
-    std::cout << "Running vanilla SpMV on accelerator... " << std::endl;
-  ret &= test_spmv(symmetric);
-
+    std::cout << "Running vanilla SpMV on CPU.." << std::endl;
+  cm = spmv::CommunicationModel::collective_blocking;
+  ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);
 
   symmetric = true;
   if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on accelerator... " << std::endl;
-  ret &= test_spmv(symmetric);
+    std::cout << "Running symmetric SpMV on CPU..." << std::endl;
+  cm = spmv::CommunicationModel::collective_blocking;
+  ret &= test_spmv(symmetric, cm);
+  MPI_Barrier(MPI_COMM_WORLD);
 
   MPI_Finalize();
   return (ret) ? 0 : 1;

@@ -3,8 +3,8 @@
 
 #include "L2GMap.h"
 #include "Matrix.h"
-#include "cg_sycl.h"
 #include "blas_sycl.h"
+#include "cg_sycl.h"
 
 //-----------------------------------------------------------------------------
 std::tuple<double*, int> spmv::cg(MPI_Comm comm, const spmv::Matrix<double>& A,

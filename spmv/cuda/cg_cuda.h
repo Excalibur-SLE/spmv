@@ -8,6 +8,8 @@
 namespace spmv
 {
 
+// Forward declarations
+class CudaExecutor;
 template <typename T>
 class Matrix;
 
@@ -23,7 +25,8 @@ class Matrix;
 /// @return tuple of result **x** and number of iterations
 ///
 SPMV_EXPORT
-std::tuple<double*, int> cg(MPI_Comm comm, const Matrix<double>& A, double* b,
-                            int max_its, double rtol);
+std::tuple<double*, int> cg(MPI_Comm comm, CudaExecutor& exec,
+                            const Matrix<double>& A, double* b, int max_its,
+                            double rtol);
 
 } // namespace spmv

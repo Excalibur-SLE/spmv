@@ -42,19 +42,19 @@ void spmv_main(int argc, char** argv)
   cudaStream_t stream;
   cudaStreamCreate(&stream);
 
-  // Get handle to the CUBLAS context
-  cublasHandle_t cublas_handle = 0;
-  cublasCreate(&cublas_handle);
-  cublasSetStream(cublas_handle, stream);
-
   auto timer_start = std::chrono::system_clock::now();
   // Either create a simple 1D stencil
   // spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 20000000);
   // Or read matrix from file created with "-ksp_view_mat binary" option
   bool symmetric = false;
   spmv::CommunicationModel cm = spmv::CommunicationModel::p2p_blocking;
-  spmv::Matrix<double> A
-      = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, symmetric, cm);
+  std::shared_ptr<spmv::DeviceExecutor> exec_host
+      = spmv::ReferenceExecutor::create();
+  std::shared_ptr<spmv::CudaExecutor> exec
+      = spmv::CudaExecutor::create(0, exec_host);
+  spmv::Matrix<double> A = spmv::read_petsc_binary_matrix(argv1, MPI_COMM_WORLD,
+                                                          exec, symmetric, cm);
+
   auto timer_end = std::chrono::system_clock::now();
   timings["0.MatCreate"] += (timer_end - timer_start);
 
@@ -72,7 +72,7 @@ void spmv_main(int argc, char** argv)
   // Vector with extra space for ghosts at end
   double* psp = new double[N_padded]();
   double* d_psp = nullptr;
-  cudaMalloc((void**)&d_psp, N_padded * sizeof(double));
+  d_psp = exec->alloc<double>(N_padded);
 
   // Set up values in local range on host
   int r0 = l2g->global_offset();
@@ -82,7 +82,7 @@ void spmv_main(int argc, char** argv)
   }
 
   // Copy data to device buffer
-  cudaMemcpy(d_psp, psp, M * sizeof(double), cudaMemcpyHostToDevice);
+  exec->copy_from<double>(d_psp, exec->get_host(), psp, M);
 
   timer_end = std::chrono::system_clock::now();
   timings["1.VecCreate"] += (timer_end - timer_start);
@@ -94,25 +94,28 @@ void spmv_main(int argc, char** argv)
 
   // Temporary vector
   double* d_q = nullptr;
-  cudaMalloc((void**)&d_q, M * sizeof(double));
+  d_q = exec->alloc<double>(M);
+
+  // Set CUDA stream
+  exec->set_cuda_stream(stream);
 
   // Warm-up
-  l2g->update(d_psp, stream);
-  A.mult(d_psp, d_q, stream);
-  cudaStreamSynchronize(stream);
+  l2g->update(d_psp);
+  A.mult(d_psp, d_q);
+  exec->synchronize();
 
   for (int i = 0; i < n_apply; ++i) {
 
     MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
-    l2g->update(d_psp, stream);
+    l2g->update(d_psp);
     timer_end = std::chrono::system_clock::now();
     timings["2.SpUpdate"] += (timer_end - timer_start);
 
     MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
-    A.mult(d_psp, d_q, stream);
-    cudaStreamSynchronize(stream);
+    A.mult(d_psp, d_q);
+    exec->synchronize();
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 
@@ -124,7 +127,7 @@ void spmv_main(int argc, char** argv)
   }
 
   double pnorm_local;
-  cublasDdot(cublas_handle, M, d_psp, 1, d_psp, 1, &pnorm_local);
+  cublasDdot(exec->get_cublas_handle(), M, d_psp, 1, d_psp, 1, &pnorm_local);
   double pnorm;
   MPI_Allreduce(&pnorm_local, &pnorm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   pnorm = sqrt(pnorm);
@@ -155,6 +158,10 @@ void spmv_main(int argc, char** argv)
     std::cout << "----------------------------\n";
     std::cout << "norm = " << pnorm << "\n";
   }
+
+  exec->free(d_psp);
+  exec->free(d_q);
+  cudaStreamDestroy(stream);
 }
 
 //-----------------------------------------------------------------------------

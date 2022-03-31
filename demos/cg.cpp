@@ -33,7 +33,12 @@ void cg_main(int argc, char** argv)
   }
 
   // Read matrix
-  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1);
+  bool symmetric = false;
+  spmv::CommunicationModel cm = spmv::CommunicationModel::collective_blocking;
+  std::shared_ptr<spmv::DeviceExecutor> exec
+      = spmv::ReferenceExecutor::create();
+  auto A = spmv::read_petsc_binary_matrix(argv1, MPI_COMM_WORLD, exec,
+                                          symmetric, cm);
 
   // Read vector
   auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);

@@ -3,12 +3,14 @@
 // SPDX-License-Identifier:    MIT
 
 #include "config.h"
+#include "spmv_export.h"
 
 #include <Eigen/Dense>
+#include <memory>
 #include <mpi.h>
 #include <string>
 
-#include "spmv_export.h"
+#include "mpi_utils.h"
 
 #pragma once
 
@@ -17,6 +19,7 @@ namespace spmv
 
 // Forward declarations
 class L2GMap;
+class DeviceExecutor;
 
 template <typename>
 class Matrix;
@@ -28,18 +31,11 @@ class Matrix;
 /// @param filename Filename
 /// @param symmetric Indicates whether the matrix is symmetric
 /// @return spmv::Matrix<double> Matrix
-#ifdef _CUDA
-SPMV_EXPORT
-Matrix<double> read_petsc_binary_matrix(MPI_Comm comm, std::string filename,
-                                        bool symmetric = false,
-                                        CommunicationModel cm
-                                        = CommunicationModel::p2p_blocking);
-#else
 SPMV_EXPORT
 Matrix<double> read_petsc_binary_matrix(
-    MPI_Comm comm, std::string filename, bool symmetric = false,
+    std::string filename, MPI_Comm comm, std::shared_ptr<DeviceExecutor> exec,
+    bool symmetric = false,
     CommunicationModel cm = CommunicationModel::collective_blocking);
-#endif
 
 /// @brief Read a binary PETSc vector file and distribute.
 ///

@@ -3,22 +3,23 @@
 // SPDX-License-Identifier:    MIT
 
 #include "config.h"
+#include "spmv_export.h"
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mpi.h>
 #include <vector>
 
-#include "spmv_export.h"
-
-#ifdef _CUDA
-#include <cuda_runtime.h>
-#endif
+#include "mpi_utils.h"
 
 #pragma once
 
 namespace spmv
 {
+
+// Forward declarations
+class DeviceExecutor;
 
 class SPMV_EXPORT L2GMap
 /// @brief Local to Global Map
@@ -39,11 +40,8 @@ public:
   /// Ghosts must be sorted in ascending order.
   L2GMap(MPI_Comm comm, std::int64_t local_size,
          const std::vector<std::int64_t>& ghosts,
-#ifdef _CUDA
-         CommunicationModel cm = CommunicationModel::p2p_blocking);
-#else
+         std::shared_ptr<spmv::DeviceExecutor> exec,
          CommunicationModel cm = CommunicationModel::collective_blocking);
-#endif
 
   // Destructor destroys neighbour comm
   ~L2GMap();
@@ -91,19 +89,11 @@ public:
   /// @param vec_data Pointer to vector data
   template <typename T>
   void update(T* vec_data) const;
-#ifdef _CUDA
-  template <typename T>
-  void update(T* vec_data, cudaStream_t& stream) const;
-#endif
 
   /// Ghost update finalisation. Completes MPI communication. This should be
   /// called when ovelapping is enabled.
   template <typename T>
   void update_finalise(T* vec_data) const;
-#ifdef _CUDA
-  template <typename T>
-  void update_finalise(T* vec_data, cudaStream_t& stream) const;
-#endif
 
   /// Reverse update. Sends ghost values to their owners, where they are
   /// accumulated at the local index. This should be applied to the result
@@ -116,49 +106,66 @@ public:
   const std::vector<std::int64_t>& ghosts() const { return _ghosts; }
 
 private:
-  // Ownership ranges for all processes on global comm
+  // Device executor
+  std::shared_ptr<spmv::DeviceExecutor> _exec;
+
+  // Ownership ranges for all processes on global communicator
   std::vector<std::int64_t> _ranges = {};
 
-  // Cached mpi rank on global comm
+  // Cached mpi rank on global communicator
   // Local range is _ranges[_mpi_rank] -> _ranges[_mpi_rank + 1]
   std::int32_t _mpi_rank = -1;
+  // Cached mpi rank on node communicator
+  std::int32_t _mpi_node_rank = -1;
 
   // Forward and reverse maps for ghosts
   std::map<std::int64_t, std::int32_t> _global_to_local = {};
   std::vector<std::int64_t> _ghosts = {};
 
   // Indices, counts and offsets for communication
-  std::vector<std::int32_t> _indexbuf = {};
+  int _num_indices = 0;
+  int* _indexbuf = nullptr;
   std::vector<std::int32_t> _send_count = {};
   std::vector<std::int32_t> _recv_count = {};
   std::vector<std::int32_t> _send_offset = {};
   std::vector<std::int32_t> _recv_offset = {};
   std::vector<std::int32_t> _recv_win_offset = {};
-#ifdef _CUDA
-  mutable int* _d_indexbuf = nullptr;
-  mutable void* _d_databuf = nullptr;
-#endif
+
+  // On-node communication
+  // Node ranks I need to get data from
+  std::vector<std::int32_t> _senders_on_node = {};
+  // Node ranks I need to send data to
+  std::vector<std::int32_t> _receivers_on_node = {};
+  // Indices, counts and offsets
+  std::vector<std::int32_t> _indexbuf_on_node = {};
+  std::vector<std::int32_t> _send_count_on_node = {};
+  std::vector<std::int32_t> _recv_count_on_node = {};
+  std::vector<std::int32_t> _send_offset_on_node = {};
+  std::vector<std::int32_t> _recv_offset_on_node = {};
+  // Where in the window I need to write to
+  std::vector<std::int32_t> _receiver_window_offset = {};
+  // Where in the window I need to write to
+  std::vector<std::int32_t> _sender_window_offset = {};
+  std::vector<std::int32_t> ghost_local_indices_on_node = {};
+  std::vector<std::int32_t> _unique_indices = {};
+  // Shared-memory window for on-node communication
+  mutable MPI_Win _window;
+  mutable void* _window_mem = nullptr;
 
   // Ranks of my neighbours
   std::vector<int> _neighbours = {};
   // Global communicator
   MPI_Comm _comm = MPI_COMM_NULL;
+  // Node-level communication
+  MPI_Comm _node_comm = MPI_COMM_NULL;
   // Neighbourhood communicator
   MPI_Comm _neighbour_comm = MPI_COMM_NULL;
   // Underlying MPI comunnication model
-#ifdef _CUDA
-  CommunicationModel _cm = CommunicationModel::p2p_blocking;
-#else
   CommunicationModel _cm = CommunicationModel::collective_blocking;
-#endif
   // MPI handle and intermediate buffers used to manage non-blocking
   // communication
   mutable MPI_Request* _req = nullptr;
   mutable void* _send_buf = nullptr;
-  mutable void* _recv_buf = nullptr;
-#ifdef _CUDA
-  mutable void* _d_send_buf = nullptr;
-#endif
 
 private:
   // Private functions
@@ -174,18 +181,14 @@ private:
   void update_p2p_start(T* vec_data) const;
   template <typename T>
   void update_p2p_end(T* vec_data) const;
-#ifdef _CUDA
-  template <typename T>
-  void update_p2p(T* vec_data, cudaStream_t& stream) const;
-  template <typename T>
-  void update_p2p_start(T* vec_data, cudaStream_t& stream) const;
-  template <typename T>
-  void update_p2p_end(T* vec_data, cudaStream_t& stream) const;
-#endif
   template <typename T>
   void update_onesided_put_active(T* vec_data) const;
   template <typename T>
   void update_onesided_put_passive(T* vec_data) const;
+  template <typename T>
+  void update_shmem(T* vec_data) const;
+  template <typename T>
+  void update_shmem_nodup(T* vec_data) const;
   template <typename T>
   void reverse_update_collective(T* vec_data) const;
   template <typename T>

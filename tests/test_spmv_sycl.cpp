@@ -113,28 +113,27 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
   for (int i = 0; i < nrows_local + 1; i++)
     rowptr_local[i] -= row_offset;
 
+  // Define SYCL device executor
+  std::shared_ptr<spmv::DeviceExecutor> exec
+      = spmv::SyclExecutor::create(&queue);
+  // Create matrix
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
-      MPI_COMM_WORLD, rowptr_local, colind_local, values_local, nrows_local,
-      ncols_local, {}, col_ghosts, symmetric);
-  A->tune(queue);
+      MPI_COMM_WORLD, exec, rowptr_local, colind_local, values_local,
+      nrows_local, ncols_local, {}, col_ghosts, symmetric);
 
   // Define local vectors
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
-  auto y_local = new double[nrows_local]();
-  auto x_local = new double[l2g->local_size() + l2g->num_ghosts()]();
+  auto y_local = sycl::malloc_shared<double>(nrows_local, queue);
+  auto x_local = sycl::malloc_shared<double>(
+      l2g->local_size() + l2g->num_ghosts(), queue);
   // Initialize from global vector
   memcpy(x_local, x.data() + row_start, ncols_local * sizeof(double));
 
-  {
-    // Update input vector from neighbors
-    l2g->update(x_local);
+  // Update input vector from neighbors
+  l2g->update(x_local);
 
-    // Compute SpMV
-    auto y_local_buf = sycl::buffer(y_local, sycl::range<1>(nrows_local));
-    auto x_local_buf = sycl::buffer(
-        x_local, sycl::range<1>(l2g->local_size() + l2g->num_ghosts()));
-    A->mult(x_local_buf, y_local_buf, queue);
-  }
+  // Compute SpMV
+  A->mult(x_local, y_local);
 
   double norm_test;
   {
@@ -146,8 +145,8 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
 
   // Cleanup
   delete A;
-  delete[] x_local;
-  delete[] y_local;
+  sycl::free(x_local, queue);
+  sycl::free(y_local, queue);
 
   if (essentially_equal(norm_test, norm_ref,
                         std::numeric_limits<double>::epsilon())) {
@@ -180,16 +179,16 @@ int main(int argc, char** argv)
 
   bool ret = true;
   bool symmetric;
+
+  symmetric = false;
   if (mpi_rank == 0)
     std::cout << "Running vanilla SpMV on CPU... " << std::endl;
-  symmetric = false;
   ret &= test_spmv(symmetric, cpu_queue);
-
   MPI_Barrier(MPI_COMM_WORLD);
 
+  symmetric = true;
   if (mpi_rank == 0)
     std::cout << "Running symmetric SpMV on CPU... " << std::endl;
-  symmetric = true;
   ret &= test_spmv(symmetric, cpu_queue);
 
   // Run only if a is GPU available

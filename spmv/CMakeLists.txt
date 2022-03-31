@@ -14,6 +14,12 @@ endif()
 configure_file(${PROJECT_SOURCE_DIR}/spmv/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
 add_library(${LIB_NAME} SHARED
+  ${PROJECT_SOURCE_DIR}/spmv/device_executor.cpp
+  ${PROJECT_SOURCE_DIR}/spmv/reference_executor.cpp
+  ${PROJECT_SOURCE_DIR}/spmv/coo_matrix.cpp
+  ${PROJECT_SOURCE_DIR}/spmv/coo_kernels.cpp
+  ${PROJECT_SOURCE_DIR}/spmv/csr_matrix.cpp
+  ${PROJECT_SOURCE_DIR}/spmv/csr_kernels.cpp
   ${PROJECT_SOURCE_DIR}/spmv/L2GMap.cpp
   ${PROJECT_SOURCE_DIR}/spmv/Matrix.cpp
   ${PROJECT_SOURCE_DIR}/spmv/read_petsc.cpp
@@ -44,7 +50,7 @@ generate_export_header(${LIB_NAME})
 # Set the header files that need to be installed
 set_target_properties(${LIB_NAME}
   PROPERTIES PUBLIC_HEADER
-    "spmv.h;L2GMap.h;Matrix.h;read_petsc.h;cg.h"
+    "spmv.h;L2GMap.h;Matrix.h;read_petsc.h;cg.h;device_executor.h;reference_executor.h"
   )
 
 # Set optional definitions
@@ -80,6 +86,8 @@ endif()
 # Include optional code
 if(ENABLE_DPCPP OR ENABLE_HIPSYCL)
   add_subdirectory(sycl)
+elseif(ENABLE_OPENMP)
+  add_subdirectory(openmp)
 elseif(ENABLE_OPENMP_OFFLOAD)
   add_subdirectory(openmp_offload)
 elseif(ENABLE_CUDA)

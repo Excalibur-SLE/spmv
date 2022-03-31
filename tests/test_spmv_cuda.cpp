@@ -119,30 +119,41 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   cudaStream_t stream;
   cudaStreamCreate(&stream);
 
+  // Define device executor
+  int device_id = 0;
+  std::shared_ptr<spmv::DeviceExecutor> exec_host
+      = spmv::ReferenceExecutor::create();
+  std::shared_ptr<spmv::CudaExecutor> exec
+      = spmv::CudaExecutor::create(device_id, exec_host);
+  // Create matrix
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
-      MPI_COMM_WORLD, rowptr_local, colind_local, values_local, nrows_local,
-      ncols_local, {}, col_ghosts, symmetric, cm);
+      MPI_COMM_WORLD, exec, rowptr_local, colind_local, values_local,
+      nrows_local, ncols_local, {}, col_ghosts, symmetric, cm);
 
   // Define local vectors
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
   double *d_y_local = nullptr, *d_x_local = nullptr;
-  cudaMalloc((void**)&d_y_local, nrows_local * sizeof(double));
-  cudaMemset(d_y_local, 0, nrows_local * sizeof(double));
-  cudaMalloc((void**)&d_x_local,
-             (l2g->local_size() + l2g->num_ghosts()) * sizeof(double));
-  cudaMemcpy(d_x_local, x.data() + row_start, ncols_local * sizeof(double),
-             cudaMemcpyHostToDevice);
+  d_y_local = exec->alloc<double>(nrows_local);
+  d_x_local = exec->alloc<double>(l2g->local_size() + l2g->num_ghosts());
+  exec->copy_from<double>(d_x_local, exec->get_host(), x.data() + row_start,
+                          ncols_local);
+
+  // Set CUDA stream
+  exec->set_cuda_stream(stream);
+
+  // Update input vector from neighbors
+  l2g->update(d_x_local);
+  exec->synchronize();
 
   // Compute SpMV
-  l2g->update(d_x_local, stream);
-  A->mult(d_x_local, d_y_local, stream);
-  cudaStreamSynchronize(stream);
+  A->mult(d_x_local, d_y_local);
+  exec->synchronize();
 
   double norm_test;
   {
     Eigen::VectorXd y_local(nrows_local);
-    cudaMemcpy(y_local.data(), d_y_local, ncols_local * sizeof(double),
-               cudaMemcpyDeviceToHost);
+    exec->copy_to<double>(y_local.data(), exec->get_host(), d_y_local,
+                          ncols_local);
     double norm = y_local.squaredNorm();
     MPI_Allreduce(&norm, &norm_test, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     norm_test = sqrt(norm_test);
@@ -150,8 +161,8 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
 
   // Cleanup
   delete A;
-  cudaFree(d_y_local);
-  cudaFree(d_x_local);
+  exec->free(d_y_local);
+  exec->free(d_x_local);
   cudaStreamDestroy(stream);
 
   if (essentially_equal(norm_test, norm_ref,
@@ -159,8 +170,7 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
     std::cout << "PASSED (Rank " << mpi_rank << ")" << std::endl;
     return true;
   } else {
-    std::cout << "FAILED (Rank " << norm_ref << " " << norm_test << " "
-              << mpi_rank << ")" << std::endl;
+    std::cout << "FAILED (Rank " << mpi_rank << ")" << std::endl;
     return false;
   }
 }
@@ -177,7 +187,7 @@ int main(int argc, char** argv)
   spmv::CommunicationModel cm;
 
   if (mpi_rank == 0)
-    std::cout << "Running vanilla SpMV on GPU with blocking communication... "
+    std::cout << "Running vanilla SpMV on GPU with blocking communication..."
               << std::endl;
   symmetric = false;
   cm = spmv::CommunicationModel::p2p_blocking;
@@ -185,7 +195,7 @@ int main(int argc, char** argv)
   MPI_Barrier(MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
-    std::cout << "Running symmetric SpMV on GPU with blocking communication... "
+    std::cout << "Running symmetric SpMV on GPU with blocking communication..."
               << std::endl;
   symmetric = true;
   ret &= test_spmv(symmetric, cm);
@@ -193,7 +203,7 @@ int main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout
-        << "Running vanilla SpMV on GPU with non-blocking communication... "
+        << "Running vanilla SpMV on GPU with non-blocking communication..."
         << std::endl;
   symmetric = false;
   cm = spmv::CommunicationModel::p2p_nonblocking;
@@ -202,7 +212,7 @@ int main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout
-        << "Running symmetric SpMV on GPU with non-blocking communication... "
+        << "Running symmetric SpMV on GPU with non-blocking communication..."
         << std::endl;
   symmetric = true;
   cm = spmv::CommunicationModel::p2p_nonblocking;

@@ -1,5 +1,5 @@
 add_sycl_to_target(TARGET ${LIB_NAME})
-target_sources(${LIB_NAME} PRIVATE cg.sycl.cpp)
+target_sources(${LIB_NAME} PRIVATE sycl_executor.cpp csr_kernels.sycl.cpp)
 
 # Extend header path for build and install phases
 target_include_directories(${LIB_NAME}

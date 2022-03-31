@@ -5,7 +5,7 @@
 #include "read_petsc.h"
 #include "L2GMap.h"
 #include "Matrix.h"
-#include "mpi_utils.h"
+#include "device_executor.h"
 
 #include <Eigen/Sparse>
 #include <cassert>
@@ -35,19 +35,18 @@ std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
 }
 
 //-----------------------------------------------------------------------------
-spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
-                                                    std::string filename,
-                                                    bool symmetric,
-                                                    CommunicationModel cm)
+spmv::Matrix<double>
+spmv::read_petsc_binary_matrix(std::string filename, MPI_Comm comm,
+                               std::shared_ptr<DeviceExecutor> exec,
+                               bool symmetric, CommunicationModel cm)
 {
-  auto A = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
-  auto A_remote
-      = std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>();
+  Eigen::SparseMatrix<double, Eigen::RowMajor> A;
+  Eigen::SparseMatrix<double, Eigen::RowMajor> A_remote;
 
   int mpi_rank;
-  MPI_Comm_rank(comm, &mpi_rank);
+  CHECK_MPI(MPI_Comm_rank(comm, &mpi_rank));
   int mpi_size;
-  MPI_Comm_size(comm, &mpi_size);
+  CHECK_MPI(MPI_Comm_size(comm, &mpi_size));
 
   std::map<std::int32_t, std::int32_t> col_indices;
   std::vector<std::int64_t> row_ranges, col_ranges;
@@ -88,9 +87,8 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
   nrows_local = row_ranges[mpi_rank + 1] - row_ranges[mpi_rank];
   ncols_local = col_ranges[mpi_rank + 1] - col_ranges[mpi_rank];
 
-  auto A_diagonal
-      = std::make_shared<Eigen::Matrix<double, Eigen::Dynamic, 1>>(nrows_local);
-  A_diagonal->setZero();
+  Eigen::Matrix<double, Eigen::Dynamic, 1> A_diagonal(nrows_local);
+  A_diagonal.setZero();
 
   // Reset memory block and read nnz per row for all rows
   memblock.resize(nrows * 4);
@@ -148,10 +146,10 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
       ++c;
     }
 
-  A->resize(nrows_local, col_indices.size());
+  A.resize(nrows_local, col_indices.size());
   if (symmetric || cm == CommunicationModel::p2p_nonblocking
       || cm == CommunicationModel::collective_nonblocking)
-    A_remote->resize(nrows_local, col_indices.size());
+    A_remote.resize(nrows_local, col_indices.size());
 
   // Read values
   std::vector<char> valuedata(nnz_size * 8);
@@ -180,51 +178,52 @@ spmv::Matrix<double> spmv::read_petsc_binary_matrix(MPI_Comm comm,
         // If element is in local column range, insert only if it's on or
         // below main diagonal
         if (col < ncols_local && global_row > global_col)
-          A->insert(global_row - row_ranges[mpi_rank], col) = val;
+          A.insert(global_row - row_ranges[mpi_rank], col) = val;
         // If element on main diagonal, store separately
         if (col < ncols_local && global_row == global_col)
-          (*A_diagonal)(global_row - row_ranges[mpi_rank]) = val;
+          A_diagonal(global_row - row_ranges[mpi_rank]) = val;
         // If element is out of local column range, always insert
         if (col >= ncols_local)
-          A_remote->insert(global_row - row_ranges[mpi_rank], col) = val;
+          A_remote.insert(global_row - row_ranges[mpi_rank], col) = val;
       } else {
         if (cm == CommunicationModel::p2p_nonblocking
             || cm == CommunicationModel::collective_nonblocking) {
           // If element is in local column range, insert in "local" block
           if (col < ncols_local)
-            A->insert(global_row - row_ranges[mpi_rank], col) = val;
+            A.insert(global_row - row_ranges[mpi_rank], col) = val;
           // Otherwise, store in "remote" block
           else
-            A_remote->insert(global_row - row_ranges[mpi_rank], col) = val;
+            A_remote.insert(global_row - row_ranges[mpi_rank], col) = val;
         } else {
-          A->insert(global_row - row_ranges[mpi_rank], col) = val;
+          A.insert(global_row - row_ranges[mpi_rank], col) = val;
         }
       }
       ptr += 4;
     }
   }
 
-  A->makeCompressed();
+  A.makeCompressed();
   if (symmetric || cm == CommunicationModel::p2p_nonblocking
       || cm == CommunicationModel::collective_nonblocking)
-    A_remote->makeCompressed();
+    A_remote.makeCompressed();
 
   std::vector<std::int64_t> ghosts(col_indices.size() - ncols_local);
   for (auto& q : col_indices)
     if (q.first < col_ranges[mpi_rank] or q.first >= col_ranges[mpi_rank + 1])
       ghosts[q.second - ncols_local] = q.first;
 
-  auto col_map = std::make_shared<spmv::L2GMap>(comm, ncols_local, ghosts, cm);
-  auto row_map = std::make_shared<spmv::L2GMap>(comm, nrows_local,
-                                                std::vector<std::int64_t>());
+  auto col_map
+      = std::make_shared<spmv::L2GMap>(comm, ncols_local, ghosts, exec, cm);
+  auto row_map = std::make_shared<spmv::L2GMap>(
+      comm, nrows_local, std::vector<std::int64_t>(), exec, cm);
 
   if (symmetric)
     return spmv::Matrix<double>(A, A_remote, A_diagonal, col_map, row_map,
-                                nnz_tot);
+                                nnz_tot, exec);
   else if (col_map->overlapping())
-    return spmv::Matrix<double>(A, A_remote, col_map, row_map);
+    return spmv::Matrix<double>(A, A_remote, col_map, row_map, exec);
   else
-    return spmv::Matrix<double>(A, col_map, row_map);
+    return spmv::Matrix<double>(A, col_map, row_map, exec);
 }
 //-----------------------------------------------------------------------------
 Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,

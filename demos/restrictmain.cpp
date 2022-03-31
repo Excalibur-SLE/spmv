@@ -9,8 +9,7 @@
 #include <mpi.h>
 
 #include "CreateA.h"
-#include <spmv/L2GMap.h>
-#include <spmv/read_petsc.h>
+#include <spmv/spmv.h>
 
 void restrict_main()
 {
@@ -24,7 +23,12 @@ void restrict_main()
 
   auto timer_start = std::chrono::system_clock::now();
   // Read in a PETSc binary format matrix
-  auto R = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, "R4.dat");
+  bool symmetric = false;
+  spmv::CommunicationModel cm = spmv::CommunicationModel::collective_blocking;
+  std::shared_ptr<spmv::DeviceExecutor> exec
+      = spmv::ReferenceExecutor::create();
+  auto R = spmv::read_petsc_binary_matrix("R4.dat", MPI_COMM_WORLD, exec,
+                                          symmetric, cm);
   auto q = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, "b4.dat");
 
   // Get local and global sizes

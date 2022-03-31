@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstdio>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cusparse.h>
@@ -11,8 +12,10 @@
   {                                                                            \
     cudaError_t status = (func);                                               \
     if (status != cudaSuccess) {                                               \
-      printf("CUDA API failed at line %d with error: %s (%d)\n", __LINE__,     \
-             cudaGetErrorString(status), status);                              \
+      fprintf(stderr,                                                          \
+              "ERROR: CUDA API \"%s\" failed at line %d of file %s with %s "   \
+              "(%d)\n",                                                        \
+              #func, __LINE__, __FILE__, cudaGetErrorString(status), status);  \
     }                                                                          \
   }
 
@@ -20,8 +23,11 @@
   {                                                                            \
     cusparseStatus_t status = (func);                                          \
     if (status != CUSPARSE_STATUS_SUCCESS) {                                   \
-      printf("cuSPARSE API failed at line %d with error: %s (%d)\n", __LINE__, \
-             cusparseGetErrorString(status), status);                          \
+      fprintf(stderr,                                                          \
+              "ERROR: cuSPARSE API \"%s\" failed at line %d of file %s with "  \
+              "%s (%d)\n",                                                     \
+              #func, __LINE__, __FILE__, cusparseGetErrorString(status),       \
+              status);                                                         \
     }                                                                          \
   }
 
@@ -67,7 +73,10 @@ static const char* cublasGetErrorString(cublasStatus_t error)
   {                                                                            \
     cublasStatus_t status = (func);                                            \
     if (status != CUBLAS_STATUS_SUCCESS) {                                     \
-      printf("cuBLAS API failed at line %d with error: %s (%d)\n", __LINE__,   \
-             cublasGetErrorString(status), status);                            \
+      fprintf(stderr,                                                          \
+              "ERROR: cuBLAS API \"%s\" failed at line %d of file %s with %s " \
+              "(%d)\n",                                                        \
+              #func, __LINE__, __FILE__, cublasGetErrorString(status),         \
+              status);                                                         \
     }                                                                          \
   }

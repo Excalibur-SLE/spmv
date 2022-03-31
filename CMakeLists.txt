@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.13)
 
 # Note that the default settings for RelWithDebInfo will disable assertions
 set(CMAKE_BUILD_TYPE RelWithDebInfo)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -117,6 +117,8 @@ endif()
 
 if(ENABLE_CUDA)
   enable_language(CUDA)
+  set(CMAKE_CUDA_STANDARD 17)
+  set(CMAKE_CUDA_STANDARD_REQUIRED TRUE)
   if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
     find_package(CUDAToolkit REQUIRED)
   else()

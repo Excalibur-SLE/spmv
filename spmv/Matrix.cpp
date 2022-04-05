@@ -263,6 +263,13 @@ Matrix<T>* Matrix<T>::create_matrix(
   }
 
   vector<int> recv_size(sources.size());
+
+  // Needed for older versions on OpenMPI
+  if (sources.size() + dests.size() == 0) {
+    send_size = {0};
+    recv_size = {0};
+  }
+
   CHECK_MPI(MPI_Neighbor_alltoall(send_size.data(), 1, MPI_INT,
                                   recv_size.data(), 1, MPI_INT,
                                   neighbour_comm));

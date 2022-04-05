@@ -235,7 +235,7 @@ Matrix<T>* Matrix<T>::create_matrix(
     p_to_val[p].push_back(0.0);
 
     const int64_t local_offset = col_ranges[mpi_rank];
-    for (int j = colind[nrows_local + i]; j < colind[nrows_local + i + 1];
+    for (int j = rowptr[nrows_local + i]; j < rowptr[nrows_local + i + 1];
          ++j) {
       int64_t global_index;
       if (colind[j] < ncols_local)
@@ -273,18 +273,6 @@ Matrix<T>* Matrix<T>::create_matrix(
 
   vector<int64_t> recv_index(recv_offset.back());
   vector<T> recv_val(recv_offset.back());
-
-  // Needed for OpenMPI
-  if (send_size.size() == 0) {
-    send_size = {0};
-    send_index = {0};
-    send_val = {0};
-  }
-  if (recv_size.size() == 0) {
-    recv_size = {0};
-    recv_index = {0};
-    recv_val = {0};
-  }
 
   CHECK_MPI(MPI_Neighbor_alltoallv(
       send_index.data(), send_size.data(), send_offset.data(), MPI_INT64_T,

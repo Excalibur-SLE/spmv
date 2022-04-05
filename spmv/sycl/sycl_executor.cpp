@@ -17,6 +17,16 @@ void SyclExecutor::synchronize() const { _queue->wait(); }
 
 const DeviceExecutor& SyclExecutor::get_host() const { return *this; }
 
+int SyclExecutor::get_num_devices() const
+{
+  auto platforms = sycl::platform::get_platforms();
+  int num_devices
+      = platforms
+            .get_devices(sycl::info::device_type = sycl::info::device_type::all)
+            .size();
+  return num_devices;
+}
+
 int SyclExecutor::get_num_cus() const
 {
 #ifdef __HIPSYCL__

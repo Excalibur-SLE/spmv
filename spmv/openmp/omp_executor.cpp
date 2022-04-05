@@ -16,6 +16,11 @@ void OmpExecutor::synchronize() const {}
 
 const DeviceExecutor& OmpExecutor::get_host() const { return *this; }
 
+int OmpExecutor::get_num_devices() const
+{
+  return 1;
+}
+
 int OmpExecutor::get_num_cus() const
 {
   const char* threads_env = getenv("OMP_NUM_THREADS");

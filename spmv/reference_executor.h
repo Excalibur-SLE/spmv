@@ -28,6 +28,7 @@ public:
   void synchronize() const override;
   const DeviceExecutor& get_host() const override;
   int get_num_cus() const override { return 1; };
+  int get_num_devices() const override { return 1; };
 
   // COO format
   void spmv_init(COOSpMV<float>& op, COOMatrix<float>& mat) override;

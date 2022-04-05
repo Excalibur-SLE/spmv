@@ -117,6 +117,7 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   // Define device executor
   std::shared_ptr<spmv::DeviceExecutor> exec
       = spmv::ReferenceExecutor::create();
+
   // Create matrix
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
       MPI_COMM_WORLD, exec, rowptr_local, colind_local, values_local,

@@ -31,6 +31,7 @@ public:
 
   void synchronize() const override;
   const DeviceExecutor& get_host() const override;
+  int get_num_devices() const override;
   int get_num_cus() const override;
 
   // COO format
@@ -79,7 +80,8 @@ protected:
                 const void* src_ptr, size_t num_bytes) const override;
 
 private:
-  OmpOffloadExecutor() = default;
+  OmpOffloadExecutor();
+  OmpOffloadExecutor(int device_id);
 };
 
 } // namespace spmv

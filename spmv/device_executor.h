@@ -85,6 +85,7 @@ public:
 
   virtual void synchronize() const = 0;
   virtual const DeviceExecutor& get_host() const = 0;
+  virtual int get_num_devices() const = 0;
   virtual int get_num_cus() const = 0;
 
   // Visitable functions (need to be virtual, so can't use templates)

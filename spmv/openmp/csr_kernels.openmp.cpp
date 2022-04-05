@@ -4,24 +4,12 @@
 #include "csr_kernels.h"
 #include "omp_executor.h"
 #include <cassert>
-#include <iostream>
 #include <map>
 #include <set>
 #include <unordered_set>
 
-#ifdef _MKL
-#include <mkl.h>
-#endif // _MKL
-
 namespace spmv
 {
-
-// #ifdef _MKL
-//   sparse_matrix_t _mat_local_mkl;
-//   sparse_matrix_t _mat_remote_mkl;
-//   struct matrix_descr _mat_local_desc;
-//   struct matrix_descr _mat_remote_desc;
-// #endif // _MKL
 
 struct aux_data_t {
   int32_t* _row_split = nullptr;
@@ -187,10 +175,9 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     int32_t* cnfl_pos = aux_data->_cnfl_pos;
     int32_t* cnfl_start = aux_data->_cnfl_start;
     int32_t* cnfl_end = aux_data->_cnfl_end;
-    T* buffer = (T*)aux_data->_buffer;
 
-// Assumes out is initialized to zero if beta is zero
-#pragma omp parallel
+    // Assumes out is initialized to zero if beta is zero
+    #pragma omp parallel
     {
       const int tid = omp_get_thread_num();
       const int32_t row_offset = row_split[tid];
@@ -214,7 +201,7 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
         }
         out[i] = alpha * sum + beta * out[i];
       }
-#pragma omp barrier
+      #pragma omp barrier
 
       // Reduction of conflicts phase
       for (int i = cnfl_start[tid]; i < cnfl_end[tid]; ++i) {
@@ -225,16 +212,15 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
       }
     }
   } else if (_symmetric) {
-#pragma omp parallel for
+    #pragma omp parallel for
     for (int32_t i = 0; i < num_rows; i++)
       out[i] = alpha * diagonal[i] * in[i] + beta * out[i];
   } else {
-#pragma omp parallel
+    #pragma omp parallel
     {
       aux_data_t* aux_data = static_cast<aux_data_t*>(_aux_data);
       int32_t* row_split = aux_data->_row_split;
       const int tid = omp_get_thread_num();
-      const int row_offset = row_split[tid];
 
       for (int32_t i = row_split[tid]; i < row_split[tid + 1]; ++i) {
         T sum = 0.0;

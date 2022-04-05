@@ -30,6 +30,7 @@ public:
 
   void synchronize() const override;
   const DeviceExecutor& get_host() const override;
+  int get_num_devices() const override;
   int get_num_cus() const override;
 
   // COO format

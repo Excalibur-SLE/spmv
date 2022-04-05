@@ -171,20 +171,22 @@ Matrix<T>* Matrix<T>::create_matrix(
   CHECK_MPI(MPI_Comm_size(comm, &mpi_size));
   CHECK_MPI(MPI_Comm_rank(comm, &mpi_rank));
 
+  // Collect row ranges
   vector<int64_t> row_ranges(mpi_size + 1, 0);
   CHECK_MPI(MPI_Allgather(&nrows_local, 1, MPI_INT64_T, row_ranges.data() + 1,
                           1, MPI_INT64_T, comm));
   for (int i = 0; i < mpi_size; ++i)
     row_ranges[i + 1] += row_ranges[i];
 
-  // FIX: often same as rows?
+  // Collect column ranges
   vector<int64_t> col_ranges(mpi_size + 1, 0);
   CHECK_MPI(MPI_Allgather(&ncols_local, 1, MPI_INT64_T, col_ranges.data() + 1,
                           1, MPI_INT64_T, comm));
   for (int i = 0; i < mpi_size; ++i)
     col_ranges[i + 1] += col_ranges[i];
 
-  // Locate owner process for each row
+  // Eliminate row ghosts
+  // Locate owner process for each row that does not belong to my local range
   vector<int> row_owner(row_ghosts.size());
   for (size_t i = 0; i < row_ghosts.size(); ++i) {
     auto it = upper_bound(row_ranges.begin(), row_ranges.end(), row_ghosts[i]);
@@ -193,7 +195,7 @@ Matrix<T>* Matrix<T>::create_matrix(
     assert(row_owner[i] != mpi_rank);
   }
 
-  // Create a neighbour comm, remap row_owner to neighbour number
+  // Create a neighbour communicator, remap row_owner to neighbour number
   set<int> neighbour_set(row_owner.begin(), row_owner.end());
   vector<int> dests(neighbour_set.begin(), neighbour_set.end());
   map<int, int> proc_to_dest;
@@ -220,11 +222,7 @@ Matrix<T>* Matrix<T>::create_matrix(
       comm, sources.size(), sources.data(), MPI_UNWEIGHTED, dests.size(),
       dests.data(), MPI_UNWEIGHTED, MPI_INFO_NULL, false, &neighbour_comm));
 
-  // send all ghost rows to their owners, using global col idx.
-  const int32_t* Aouter = rowptr;
-  const int32_t* Ainner = colind;
-  const T* Aval = values;
-
+  // Send all ghost rows to their owners, using global col idx
   vector<vector<int64_t>> p_to_index(dests.size());
   vector<vector<T>> p_to_val(dests.size());
   for (size_t i = 0; i < row_ghosts.size(); ++i) {
@@ -232,22 +230,22 @@ Matrix<T>* Matrix<T>::create_matrix(
     assert(p != -1);
     p_to_index[p].push_back(row_ghosts[i]);
     p_to_val[p].push_back(0.0);
-    p_to_index[p].push_back(Aouter[nrows_local + i + 1]
-                            - Aouter[nrows_local + i]);
+    p_to_index[p].push_back(rowptr[nrows_local + i + 1]
+                            - rowptr[nrows_local + i]);
     p_to_val[p].push_back(0.0);
 
     const int64_t local_offset = col_ranges[mpi_rank];
-    for (int j = Aouter[nrows_local + i]; j < Aouter[nrows_local + i + 1];
+    for (int j = colind[nrows_local + i]; j < colind[nrows_local + i + 1];
          ++j) {
       int64_t global_index;
-      if (Ainner[j] < ncols_local)
-        global_index = Ainner[j] + local_offset;
+      if (colind[j] < ncols_local)
+        global_index = colind[j] + local_offset;
       else {
-        assert(Ainner[j] - ncols_local < (int)col_ghosts.size());
-        global_index = col_ghosts[Ainner[j] - ncols_local];
+        assert(colind[j] - ncols_local < (int)col_ghosts.size());
+        global_index = col_ghosts[colind[j] - ncols_local];
       }
       p_to_index[p].push_back(global_index);
-      p_to_val[p].push_back(Aval[j]);
+      p_to_val[p].push_back(values[j]);
     }
   }
 
@@ -276,6 +274,18 @@ Matrix<T>* Matrix<T>::create_matrix(
   vector<int64_t> recv_index(recv_offset.back());
   vector<T> recv_val(recv_offset.back());
 
+  // Needed for OpenMPI
+  if (send_size.size() == 0) {
+    send_size = {0};
+    send_index = {0};
+    send_val = {0};
+  }
+  if (recv_size.size() == 0) {
+    recv_size = {0};
+    recv_index = {0};
+    recv_val = {0};
+  }
+
   CHECK_MPI(MPI_Neighbor_alltoallv(
       send_index.data(), send_size.data(), send_offset.data(), MPI_INT64_T,
       recv_index.data(), recv_size.data(), recv_offset.data(), MPI_INT64_T,
@@ -287,7 +297,7 @@ Matrix<T>* Matrix<T>::create_matrix(
       neighbour_comm));
 
   // Create new map from global column index to local
-  map<int64_t, int> col_ghost_map;
+  map<int64_t, int32_t> col_ghost_map;
   for (int64_t q : col_ghosts)
     col_ghost_map.insert({q, -1});
 
@@ -316,8 +326,8 @@ Matrix<T>* Matrix<T>::create_matrix(
   vector<Eigen::Triplet<T>> mat_remote_data;
   vector<Eigen::Triplet<T>> mat_diagonal_data;
   for (int row = 0; row < nrows_local; ++row) {
-    for (int j = Aouter[row]; j < Aouter[row + 1]; ++j) {
-      int col = Ainner[j];
+    for (int j = rowptr[row]; j < rowptr[row + 1]; ++j) {
+      int col = colind[j];
       if (col >= ncols_local) {
         // Get remapped ghost column
         int64_t global_col = col_ghosts[col - ncols_local];
@@ -336,20 +346,20 @@ Matrix<T>* Matrix<T>::create_matrix(
           int64_t global_row = row + row_ranges[mpi_rank];
           int64_t global_col = col + col_ranges[mpi_rank];
           if (global_row > global_col)
-            mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+            mat_data.push_back(Eigen::Triplet<T>(row, col, values[j]));
           else if (global_row == global_col)
-            mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+            mat_diagonal_data.push_back(Eigen::Triplet<T>(row, col, values[j]));
         } else {
-          mat_remote_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+          mat_remote_data.push_back(Eigen::Triplet<T>(row, col, values[j]));
         }
       } else if (cm == CommunicationModel::p2p_nonblocking
                  || cm == CommunicationModel::collective_nonblocking) {
         if (col < ncols_local)
-          mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+          mat_data.push_back(Eigen::Triplet<T>(row, col, values[j]));
         else
-          mat_remote_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+          mat_remote_data.push_back(Eigen::Triplet<T>(row, col, values[j]));
       } else {
-        mat_data.push_back(Eigen::Triplet<T>(row, col, Aval[j]));
+        mat_data.push_back(Eigen::Triplet<T>(row, col, values[j]));
       }
     }
   }

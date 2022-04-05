@@ -33,6 +33,13 @@ void CudaExecutor::synchronize() const
   }
 }
 
+int CudaExecutor::get_num_devices() const
+{
+  int num_devices = 0;
+  CHECK_CUDA(cudaGetDeviceCount(&num_devices));
+  return num_devices;
+}
+
 int CudaExecutor::get_num_cus() const
 {
   cudaDeviceProp device_prop;

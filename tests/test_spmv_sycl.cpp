@@ -116,6 +116,7 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
   // Define SYCL device executor
   std::shared_ptr<spmv::DeviceExecutor> exec
       = spmv::SyclExecutor::create(&queue);
+
   // Create matrix
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(
       MPI_COMM_WORLD, exec, rowptr_local, colind_local, values_local,

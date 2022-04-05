@@ -3,15 +3,6 @@
 
 #include "csr_kernels.h"
 #include "omp_offload_executor.h"
-#include <cassert>
-#include <iostream>
-#include <map>
-#include <set>
-#include <unordered_set>
-
-#ifdef _MKL
-#include <mkl.h>
-#endif // _MKL
 
 namespace spmv
 {
@@ -32,10 +23,8 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
                      const OmpOffloadExecutor& exec) const
 {
   if (_symmetric && num_non_zeros > 0) {
-    #pragma omp target teams distribute parallel for map(to                        \
-                                                     : diagonal[:num_rows])    \
-    map(tofrom                                                                 \
-        : out[:num_rows])
+    #pragma omp target teams distribute parallel for	\
+      is_device_ptr(out)
     for (int32_t i = 0; i < num_rows; ++i) {
       out[i] = beta * out[i];
     }
@@ -45,13 +34,13 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     // blocks={#threads,warp_size,1}
     // For PGI compiler, teams+parallel map to thread blocks and simd is not
     // used Clang/LLVM does not implement simd
-    #pragma omp target teams distribute parallel for			\
-      map(to : rowptr[:num_rows + 1])					\
-      map(to : colind[:num_non_zeros])					\
-      map(to : values[:num_non_zeros])					\      
-      map(to : diagonal[:num_rows])					\
-      map(to : in[:num_cols])						\
-      map(tofrom : out[:num_rows])
+    #pragma omp target teams distribute parallel for	\
+      is_device_ptr(rowptr)				\
+      is_device_ptr(colind)				\
+      is_device_ptr(values)				\
+      is_device_ptr(diagonal)				\
+      is_device_ptr(in)					\
+      is_device_ptr(out)
     for (int32_t i = 0; i < num_rows; ++i) {
       T sum = diagonal[i] * in[i];
 
@@ -67,10 +56,10 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
       out[i] += alpha * sum;
     }
   } else if (_symmetric) {
-    #pragma omp target teams distribute parallel for			\
-      map(to : diagonal[:num_rows])					\
-      map(to : in[:num_cols])						\
-      map(tofrom : out[:num_rows])
+    #pragma omp target teams distribute parallel for	\
+      is_device_ptr(diagonal)				\
+      is_device_ptr(in)					\
+      is_device_ptr(out)
     for (int32_t i = 0; i < num_rows; ++i) {
       out[i] = alpha * diagonal[i] * in[i] + beta * out[i];
     }
@@ -80,12 +69,12 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     // blocks={#threads,warp_size,1}
     // For PGI compiler, teams+parallel map to thread blocks and simd is not
     // used Clang/LLVM does not implement simd
-    #pragma omp target teams distribute parallel for			\
-      map(to : rowptr[:num_rows + 1])					\
-      map(to : colind[:num_non_zeros])					\
-      map(to : values[:num_non_zeros])					\      
-      map(to : in[:num_cols])						\
-      map(tofrom : out[:num_rows])
+    #pragma omp target teams distribute parallel for	\
+      is_device_ptr(rowptr)				\
+      is_device_ptr(colind)				\
+      is_device_ptr(values)				\
+      is_device_ptr(in)					\
+      is_device_ptr(out)
     for (int32_t i = 0; i < num_rows; ++i) {
       T sum = 0.0;
       for (int32_t j = rowptr[i]; j < rowptr[i + 1]; ++j) {

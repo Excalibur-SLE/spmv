@@ -3,6 +3,7 @@
 
 #include "omp_offload_executor.h"
 #include <cstring>
+#include <iostream>
 #include <typeinfo>
 
 #include "coo_matrix.h"
@@ -11,47 +12,54 @@
 namespace spmv
 {
 
+OmpOffloadExecutor::OmpOffloadExecutor()
+{
+  this->_dev_info.device_id = omp_get_default_device();
+}
+
+OmpOffloadExecutor::OmpOffloadExecutor(int device_id)
+{
+  omp_set_default_device(device_id);
+  this->_dev_info.device_id = device_id;
+}
+
 void OmpOffloadExecutor::synchronize() const {}
 
 const DeviceExecutor& OmpOffloadExecutor::get_host() const { return *this; }
 
-int OmpOffloadExecutor::get_num_cus() const
+int OmpOffloadExecutor::get_num_devices() const
 {
-  // FIXME
-  return 1;
-  // const char* threads_env = getenv("OMP_NUM_THREADS");
-  // int ret = 1;
-
-  // if (threads_env) {
-  //   ret = atoi(threads_env);
-  //   if (ret < 0)
-  //     ret = 1;
-  // }
-
-  // return ret;
+  // Returns the number of non-host devices available for offload
+  return omp_get_num_devices();
 }
+
+int OmpOffloadExecutor::get_num_cus() const { return omp_get_num_devices(); }
 
 void* OmpOffloadExecutor::_alloc(size_t num_bytes) const
 {
-  // FIXME use OpenMP-5 allocators
   void* ptr = nullptr;
-  ptr = std::malloc(num_bytes);
+  ptr = omp_target_alloc(num_bytes, this->_dev_info.device_id);
+  if (ptr == nullptr) {
+    std::cerr << "ERROR: no space left on device" << std::endl;
+    exit(1);
+  }
+
   return ptr;
 }
 
-void OmpOffloadExecutor::_free(void* ptr) const { std::free(ptr); }
-
-void OmpOffloadExecutor::_memset(void* ptr, int value, size_t num_bytes) const
+void OmpOffloadExecutor::_free(void* ptr) const
 {
-  std::memset(ptr, value, num_bytes);
-};
+  omp_target_free(ptr, this->_dev_info.device_id);
+}
+
+void OmpOffloadExecutor::_memset(void* ptr, int value,
+                                 size_t num_bytes) const {};
 
 void OmpOffloadExecutor::_copy(void* dst_ptr, const void* src_ptr,
                                size_t num_bytes) const
 {
-  if (num_bytes > 0) {
-    std::memcpy(dst_ptr, src_ptr, num_bytes);
-  }
+  omp_target_memcpy(dst_ptr, src_ptr, num_bytes, 0, 0,
+                    this->_dev_info.device_id, this->_dev_info.device_id);
 }
 
 void OmpOffloadExecutor::_copy_async(void* dst_ptr, const void* src_ptr,
@@ -64,24 +72,15 @@ void OmpOffloadExecutor::_copy_from(void* dst_ptr,
                                     const DeviceExecutor& src_exec,
                                     const void* src_ptr, size_t num_bytes) const
 {
-  if (typeid(src_exec) == typeid(OmpOffloadExecutor)) {
-    if (num_bytes > 0) {
-      //      #pragma omp target enter data map(to : rowptr[:nrows + 1])
-      std::memcpy(dst_ptr, src_ptr, num_bytes);
-    }
-  }
+  omp_target_memcpy(dst_ptr, src_ptr, num_bytes, 0, 0,
+                    this->_dev_info.device_id, omp_get_initial_device());
 }
 
 void OmpOffloadExecutor::_copy_to(void* dst_ptr, const DeviceExecutor& dst_exec,
                                   const void* src_ptr, size_t num_bytes) const
 {
-  //  #pragma omp target exit data map(release : rowptr[:nrows + 1])
-  if (typeid(dst_exec) == typeid(OmpOffloadExecutor)) {
-    if (num_bytes > 0) {
-      //      #pragma omp target enter data map(to : rowptr[:nrows + 1])
-      std::memcpy(dst_ptr, src_ptr, num_bytes);
-    }
-  }
+  omp_target_memcpy(dst_ptr, src_ptr, num_bytes, 0, 0, omp_get_initial_device(),
+                    this->_dev_info.device_id);
 }
 
 void OmpOffloadExecutor::spmv_init(CSRSpMV<float>& op, CSRMatrix<float>& mat,
@@ -154,6 +153,10 @@ void OmpOffloadExecutor::gather_ghosts_run(int num_indices,
                                            const int32_t* indices,
                                            const float* in, float* out) const
 {
+  #pragma omp target teams distribute parallel for	\
+    is_device_ptr(indices)				\
+    is_device_ptr(in)					\
+    is_device_ptr(out)
   for (int i = 0; i < num_indices; ++i)
     out[i] = in[indices[i]];
 }
@@ -162,6 +165,10 @@ void OmpOffloadExecutor::gather_ghosts_run(int num_indices,
                                            const int32_t* indices,
                                            const double* in, double* out) const
 {
+  #pragma omp target teams distribute parallel for	\
+    is_device_ptr(indices)				\
+    is_device_ptr(in)					\
+    is_device_ptr(out)
   for (int i = 0; i < num_indices; ++i)
     out[i] = in[indices[i]];
 }

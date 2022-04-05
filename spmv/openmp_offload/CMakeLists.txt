@@ -17,8 +17,8 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   # See related bug: https://gitlab.kitware.com/cmake/cmake/-/issues/21787
   # libomp needs to be in linker's search path, when Clang is built in non-standard location
-  target_compile_options(${LIB_NAME} PUBLIC -fopenmp=libomp -fopenmp-targets=nvptx64 -Wno-unknown-cuda-version --cuda-path=${CUDAToolkit_ROOT})
-  target_link_options(${LIB_NAME} PUBLIC -fopenmp=libomp -fopenmp-targets=nvptx64 -Wno-unknown-cuda-version --cuda-path=${CUDAToolkit_ROOT})
+  target_compile_options(${LIB_NAME} PUBLIC -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Wno-unknown-cuda-version --cuda-path=${CUDAToolkit_ROOT}/cuda)
+  target_link_options(${LIB_NAME} PUBLIC -fopenmp=libomp -fopenmp-targets=nvptx64-nvidia-cuda -Wno-unknown-cuda-version --cuda-path=${CUDAToolkit_ROOT}/cuda)
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "PGI")
   target_compile_options(${LIB_NAME} PUBLIC -mp=gpu -Minfo=mp)

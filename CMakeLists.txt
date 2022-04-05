@@ -140,7 +140,7 @@ endif()
 
 # Generic compiler flags for development
 add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:-forward-unknown-to-host-compiler>)
-add_compile_options(-Wall -Wextra -Wpedantic)
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-but-set-variable)
 
 add_subdirectory(spmv)
 include_directories(${LIB_NAME} ${CMAKE_CURRENT_SOURCE_DIR})

@@ -69,7 +69,7 @@ target_compile_definitions(${LIB_NAME}
 
 # Set library dependencies
 target_link_libraries(${LIB_NAME}
-  PUBLIC Eigen3::Eigen MPI::MPI_C
+  PUBLIC Eigen3::Eigen MPI::MPI_C MPI::MPI_CXX
   PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
   )
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18)

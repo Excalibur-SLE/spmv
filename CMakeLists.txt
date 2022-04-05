@@ -43,7 +43,7 @@ file(RELATIVE_PATH relDir2
 set(CMAKE_INSTALL_RPATH $ORIGIN/${relDir1}:$ORIGIN/${relDir2})
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-find_package(MPI REQUIRED COMPONENTS C)
+find_package(MPI REQUIRED COMPONENTS C CXX)
 
 option(ENABLE_OPENMP "Use OpenMP for shared-memory parallelization" OFF)
 option(ENABLE_OPENMP_OFFLOAD "Use OpenMP for accelerator offloading" OFF)

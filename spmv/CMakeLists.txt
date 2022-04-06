@@ -60,8 +60,8 @@ target_compile_definitions(${LIB_NAME}
     $<$<BOOL:${ENABLE_OPENMP_OFFLOAD}>:_OPENMP_OFFLOAD>
     $<$<OR:$<BOOL:${ENABLE_HIPSYCL}>,$<BOOL:${ENABLE_DPCPP}>>:_SYCL>
     $<$<BOOL:${ENABLE_CUDA}>:_CUDA>
-    $<$<BOOL:${BLAS_FOUND}>:_MKL>
   )
+
 # Eigen-specific definitions
 target_compile_definitions(${LIB_NAME}
   PUBLIC "EIGEN_MAX_ALIGN_BYTES=32"
@@ -71,6 +71,7 @@ target_compile_definitions(${LIB_NAME}
 target_link_libraries(${LIB_NAME}
   PUBLIC Eigen3::Eigen MPI::MPI_C MPI::MPI_CXX
   PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
+  PRIVATE $<$<BOOL:${OpenACC_CXX_FOUND}>:OpenACC::OpenACC_CXX>
   )
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18)
   # Can use imported target BLAS::BLAS for version >= 3.18
@@ -84,12 +85,14 @@ else()
 endif()
 
 # Include optional code
-if(ENABLE_DPCPP OR ENABLE_HIPSYCL)
-  add_subdirectory(sycl)
-elseif(ENABLE_OPENMP)
+if(ENABLE_OPENMP)
   add_subdirectory(openmp)
 elseif(ENABLE_OPENMP_OFFLOAD)
   add_subdirectory(openmp_offload)
+elseif(ENABLE_OPENACC)
+  add_subdirectory(openacc)
+elseif(ENABLE_DPCPP OR ENABLE_HIPSYCL)
+  add_subdirectory(sycl)
 elseif(ENABLE_CUDA)
   add_subdirectory(cuda)
 endif()

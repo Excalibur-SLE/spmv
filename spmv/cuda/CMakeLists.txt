@@ -2,7 +2,7 @@ target_sources(${LIB_NAME} PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/cuda_executor.cu
   ${CMAKE_CURRENT_SOURCE_DIR}/coo_kernels.cuda.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/csr_kernels.cuda.cu
-  ${CMAKE_CURRENT_SOURCE_DIR}/cg.cu
+  ${CMAKE_CURRENT_SOURCE_DIR}/cg.cuda.cu
   )
 
 # Extend header path for build and install phases
@@ -13,13 +13,6 @@ target_include_directories(${LIB_NAME}
   PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   )
-
-# Set the header files that need to be installed (cannot use property
-# in this cuda as it does not preserve directory structure)
-set(publicHeaders "cg_cuda.h")
-foreach(header ${publicHeaders})
-  install(FILES ${header} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}/cuda")
-endforeach()
 
 # We are forced to disable pedantic with NVCC as it generates non-suppressible warnings of type
 # "warning: style of line directive is a GCC extension"
@@ -52,3 +45,9 @@ else()
     PRIVATE ${CUBLAS_LIB} ${CUSPARSE_LIB}
     )
 endif()
+
+# Install the header files manually, since CMake does not respect subdirectories
+set(publicHeaders "cg_cuda.h")
+foreach(header ${publicHeaders})
+  install(FILES ${header} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}/cuda")
+endforeach()

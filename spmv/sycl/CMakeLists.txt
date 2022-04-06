@@ -10,9 +10,8 @@ target_include_directories(${LIB_NAME}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   )
 
-# Set the header files that need to be installed (cannot use property
-# in this cuda as it does not preserve directory structure)
-set(publicHeaders "cg_sycl.h")
+# Install the header files manually, since CMake does not respect subdirectories
+set(publicHeaders "sycl_executor.h;cg_sycl.h")
 foreach(header ${publicHeaders})
   install(FILES ${header} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}/sycl")
 endforeach()

@@ -23,3 +23,9 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "PGI")
   target_compile_options(${LIB_NAME} PUBLIC -mp=gpu -Minfo=mp)
 endif()
+
+# Install the header files manually, since CMake does not respect subdirectories
+set(publicHeaders "omp_offload_executor.h")
+foreach(header ${publicHeaders})
+  install(FILES ${header} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}/openmp_offload")
+endforeach()

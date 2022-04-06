@@ -5,23 +5,23 @@
 
 #include "csr_kernels.h"
 #include "device_executor.h"
-#include <omp.h>
+#include <openacc.h>
 
 namespace spmv
 {
 
-class SPMV_EXPORT OmpOffloadExecutor : public DeviceExecutor
+class SPMV_EXPORT OpenaccExecutor : public DeviceExecutor
 {
 public:
-  ~OmpOffloadExecutor(){};
+  ~OpenaccExecutor();
 
   // Factory function
   template <typename... Ts>
-  static std::unique_ptr<OmpOffloadExecutor> create(Ts&&... params)
+  static std::unique_ptr<OpenaccExecutor> create(Ts&&... params)
   {
     // Can't use make_unique with private ctors
-    std::unique_ptr<OmpOffloadExecutor> ptr(nullptr);
-    ptr.reset(new OmpOffloadExecutor(std::forward<Ts>(params)...));
+    std::unique_ptr<OpenaccExecutor> ptr(nullptr);
+    ptr.reset(new OpenaccExecutor(std::forward<Ts>(params)...));
     return ptr;
   }
 
@@ -76,8 +76,8 @@ protected:
                 const void* src_ptr, size_t num_bytes) const override;
 
 private:
-  OmpOffloadExecutor();
-  OmpOffloadExecutor(int device_id);
+  OpenaccExecutor() = default;
+  OpenaccExecutor(int device_id);
 };
 
 } // namespace spmv

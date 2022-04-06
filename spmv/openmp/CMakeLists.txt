@@ -8,3 +8,9 @@ target_include_directories(${LIB_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}/openmp>
   )
+
+# Install the header files manually, since CMake does not respect subdirectories
+set(publicHeaders "omp_executor.h")
+foreach(header ${publicHeaders})
+  install(FILES ${header} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}/openmp")
+endforeach()

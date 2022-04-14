@@ -1,65 +1,52 @@
-# Executables
-add_executable(spmv_demo spmv.cpp CreateA.cpp)
-target_link_libraries(spmv_demo PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-install(TARGETS spmv_demo DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+function(add_demo)
+  # Define the supported set of keywords
+  set(prefix ARG)
+  set(noValues ENABLE_HIPSYCL ENABLE_CUDA)
+  set(singleValues TARGET)
+  set(multiValues SOURCES)
 
-add_executable(cg_demo cg.cpp)
-set_target_properties(cg_demo PROPERTIES
-  CXX_STANDARD 17
-  C_STANDARD_REQUIRED ON
-  C_EXTENSIONS OFF
-  )
-target_link_libraries(cg_demo PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-install(TARGETS cg_demo DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+  # Process the arguments passed in
+  include(CMakeParseArguments)
+  cmake_parse_arguments(${prefix}
+    "${noValues}"
+    "${singleValues}"
+    "${multiValues}"
+    ${ARGN})
 
-add_executable(restrictmain restrictmain.cpp)
-target_link_libraries(restrictmain PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-
-if(ENABLE_DPCPP OR ENABLE_HIPSYCL)
-  add_executable(spmv_demo_sycl spmv_sycl.cpp CreateA.cpp)
-  target_link_libraries(spmv_demo_sycl PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-  install(TARGETS spmv_demo_sycl DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
-
-  # add_executable(cg_demo_sycl cg_sycl.cpp)
-  # target_link_libraries(cg_demo_sycl PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-  # install(TARGETS cg_demo_sycl DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
-
-  if(ENABLE_HIPSYCL)
-    add_sycl_to_target(TARGET spmv_demo_sycl SOURCES spmv_sycl.cpp)
-    #add_sycl_to_target(TARGET cg_demo_sycl SOURCES cg_sycl.cpp)
+  add_executable(${ARG_TARGET} ${ARG_SOURCES})
+  if(ARG_ENABLE_HIPSYCL)
+    add_sycl_to_target(TARGET ${ARG_TARGET})
   endif()
-elseif(ENABLE_OPENMP)
-  add_executable(spmv_demo_openmp spmv_openmp.cpp CreateA.cpp)
-  target_link_libraries(spmv_demo_openmp PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-  install(TARGETS spmv_demo_openmp DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
-
-  add_executable(cg_demo_openmp cg_openmp.cpp)
-  set_target_properties(cg_demo_openmp PROPERTIES
-    CXX_STANDARD 17
-    C_STANDARD_REQUIRED ON
-    C_EXTENSIONS OFF
-    )
-  target_link_libraries(cg_demo_openmp PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-  install(TARGETS cg_demo_openmp DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
-elseif(ENABLE_OPENACC)
-  add_executable(spmv_demo_openacc spmv_openacc.cpp)
-  target_link_libraries(spmv_demo_openacc PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-elseif(ENABLE_CUDA)
-  add_executable(spmv_demo_cuda spmv_cuda.cpp CreateA.cpp)
-  target_link_libraries(spmv_demo_cuda PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-  if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
-    target_link_libraries(spmv_demo_cuda PRIVATE CUDA::cublas)
-  else()
-    target_link_libraries(spmv_demo_cuda PRIVATE ${CUBLAS_LIB})
+  if(ARG_ENABLE_CUDA)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
+      target_link_libraries(${ARG_TARGET} PRIVATE CUDA::cublas)
+    else()
+      target_link_libraries(${ARG_TARGET} PRIVATE ${CUBLAS_LIB})
+    endif()
   endif()
-  install(TARGETS spmv_demo_cuda DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+  target_link_libraries(${ARG_TARGET} PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS ${ARG_TARGET} DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+endfunction()
 
-  add_executable(cg_demo_cuda cg_cuda.cpp)
-  set_target_properties(cg_demo_cuda PROPERTIES
-    CXX_STANDARD 17
-    C_STANDARD_REQUIRED ON
-    C_EXTENSIONS OFF
-    )
-  target_link_libraries(cg_demo_cuda PRIVATE ${PROJECT_NAME}::${LIB_NAME})
-  install(TARGETS cg_demo_cuda DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+# Add demos
+add_demo(TARGET demo_spmv SOURCES spmv.cpp)
+add_demo(TARGET demo_cg SOURCES cg.cpp)
+if(ENABLE_OPENMP)
+  add_demo(TARGET demo_spmv_openmp SOURCES spmv_openmp.cpp)
+  add_demo(TARGET demo_cg_openmp SOURCES cg_openmp.cpp)
+endif()
+if(ENABLE_OPENACC)
+  add_demo(TARGET demo_spmv_openacc SOURCES spmv_openacc.cpp)
+endif()
+if(ENABLE_DPCPP)
+  add_demo(TARGET demo_spmv_sycl SOURCES spmv_sycl.cpp)
+  add_demo(TARGET demo_cg_sycl SOURCES cg_sycl.cpp)
+endif()
+if(ENABLE_HIPSYCL)
+  add_demo(TARGET demo_spmv_sycl SOURCES spmv_sycl.cpp ENABLE_HIPSYCL)
+  add_demo(TARGET demo_cg_sycl SOURCES cg_sycl.cpp ENABLE_HIPSYCL)
+endif()
+if(ENABLE_CUDA)
+  add_demo(TARGET demo_spmv_cuda SOURCES spmv_cuda.cpp ENABLE_CUDA)
+  add_demo(TARGET demo_cg_cuda SOURCES cg_cuda.cpp ENABLE_CUDA)
 endif()

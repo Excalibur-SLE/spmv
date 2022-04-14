@@ -1,4 +1,4 @@
-# Executables
+`# Executables
 add_executable(spmv_demo spmv.cpp CreateA.cpp)
 target_link_libraries(spmv_demo PRIVATE ${PROJECT_NAME}::${LIB_NAME})
 install(TARGETS spmv_demo DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
@@ -28,6 +28,22 @@ if(ENABLE_DPCPP OR ENABLE_HIPSYCL)
     add_sycl_to_target(TARGET spmv_demo_sycl SOURCES spmv_sycl.cpp)
     #add_sycl_to_target(TARGET cg_demo_sycl SOURCES cg_sycl.cpp)
   endif()
+elseif(ENABLE_OPENMP)
+  add_executable(spmv_demo_openmp spmv_openmp.cpp CreateA.cpp)
+  target_link_libraries(spmv_demo_openmp PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS spmv_demo_openmp DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+
+  add_executable(cg_demo_openmp cg_openmp.cpp)
+  set_target_properties(cg_demo_opemmp PROPERTIES
+    CXX_STANDARD 17
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+    )
+  target_link_libraries(cg_demo_openmp PRIVATE ${PROJECT_NAME}::${LIB_NAME})
+  install(TARGETS cg_demo_openmp DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
+elseif(ENABLE_OPENACC)
+  add_executable(spmv_demo_openacc spmv_openacc.cpp)
+  target_link_libraries(spmv_demo_openacc PRIVATE ${PROJECT_NAME}::${LIB_NAME})
 elseif(ENABLE_CUDA)
   add_executable(spmv_demo_cuda spmv_cuda.cpp CreateA.cpp)
   target_link_libraries(spmv_demo_cuda PRIVATE ${PROJECT_NAME}::${LIB_NAME})

@@ -1,4 +1,4 @@
-`# Executables
+# Executables
 add_executable(spmv_demo spmv.cpp CreateA.cpp)
 target_link_libraries(spmv_demo PRIVATE ${PROJECT_NAME}::${LIB_NAME})
 install(TARGETS spmv_demo DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)

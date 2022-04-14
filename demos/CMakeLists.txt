@@ -34,7 +34,7 @@ elseif(ENABLE_OPENMP)
   install(TARGETS spmv_demo_openmp DESTINATION ${CMAKE_INSTALL_BINDIR}/demos)
 
   add_executable(cg_demo_openmp cg_openmp.cpp)
-  set_target_properties(cg_demo_opemmp PROPERTIES
+  set_target_properties(cg_demo_openmp PROPERTIES
     CXX_STANDARD 17
     C_STANDARD_REQUIRED ON
     C_EXTENSIONS OFF

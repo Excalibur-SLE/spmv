@@ -190,6 +190,13 @@ void CudaExecutor::set_cuda_stream(cudaStream_t stream)
   CHECK_CUSPARSE(cusparseSetStream(_cusparse_handle, stream));
 }
 
+void CudaExecutor::reset_cuda_stream()
+{
+  _stream = nullptr;
+  CHECK_CUBLAS(cublasSetStream(_cublas_handle, 0));
+  CHECK_CUSPARSE(cusparseSetStream(_cusparse_handle, 0));
+}
+
 template <typename T>
 __global__ void gather_ghosts(const int N, const int* indices, const T* in,
                               T* out)

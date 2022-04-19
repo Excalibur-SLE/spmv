@@ -4,10 +4,11 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
+
 #include <mpi.h>
 
 #include <spmv/spmv.h>
-#include <spmv/sycl/blas_sycl.h>
+#include <sycl/blas_sycl.h>
 
 using namespace std;
 
@@ -40,19 +41,19 @@ int cg_main(int argc, char** argv)
        << device.get_info<sycl::info::device::name>() << endl;
 
   // Read matrix
-  bool use_symmetry = false;
-  auto A = spmv::read_petsc_binary_matrix(MPI_COMM_WORLD, argv1, use_symmetry);
-  A.tune(queue);
+  bool symmetric = false;
+  spmv::CommunicationModel cm = spmv::CommunicationModel::collective_blocking;
+  std::shared_ptr<spmv::SyclExecutor> exec = spmv::SyclExecutor::create(&queue);
+  spmv::Matrix<double> A = spmv::read_petsc_binary_matrix(argv1, MPI_COMM_WORLD,
+                                                          exec, symmetric, cm);
 
   // Read vector
-  auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
-  double* b_usm = sycl::malloc_shared<double>(b.size(), queue);
-  queue.memcpy(b_usm, b.data(), b.size() * sizeof(double)).wait();
+  double* b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, exec, argv2);
+  double* x = exec->alloc<double>(A.rows());
 
   // Get local and global sizes
   shared_ptr<const spmv::L2GMap> l2g = A.col_map();
   int64_t N = l2g->global_size();
-  int N_padded = l2g->local_size() + l2g->num_ghosts();
 
   if (mpi_rank == 0)
     cout << "Global vec size = " << N << "\n";
@@ -67,36 +68,30 @@ int cg_main(int argc, char** argv)
   MPI_Pcontrol(1);
   timer_start = chrono::system_clock::now();
   // Solve A*x = b
-  // sycl::buffer<double, 1> b_buf{b.data(), b.size()};
-  // auto [x, num_its] = spmv::cg(MPI_COMM_WORLD, A, b_buf, max_its, rtol,
-  // queue);
-  auto [x, num_its] = spmv::cg(MPI_COMM_WORLD, A, b_usm, max_its, rtol, queue);
+  int num_its = spmv::cg(MPI_COMM_WORLD, *exec, A, b, x, max_its, rtol);
   timer_end = chrono::system_clock::now();
   timings["1.Solve"] += (timer_end - timer_start);
   MPI_Pcontrol(0);
 
-  sycl::free(b_usm, queue);
-
   // Test result
-  double xnorm, xnorm_sum;
-  double rnorm, rnorm_sum;
-  l2g->update(x);
-  {
-    // Compute norm of x
-    sycl::buffer<double> x_buf{x, sycl::range(N_padded)};
-    spmv::squared_norm(l2g->local_size(), x_buf, &xnorm, queue);
-    MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+  std::int64_t M = l2g->local_size();
+  std::int64_t N_local_padded = l2g->local_size() + l2g->num_ghosts();
+  double* x_padded = exec->alloc<double>(N_local_padded);
+  exec->copy<double>(x_padded, x, M);
+  l2g->update(x_padded);
+  double* r = exec->alloc<double>(M);
+  A.mult(x_padded, r);
+  spmv::axpy<double>(M, -1, b, r, queue).wait();
+  double rnorm;
+  spmv::dot<double>(M, r, r, &rnorm, queue).wait();
+  double rnorm_sum;
+  MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-    // Compute norm of r = A*x - b
-    sycl::buffer<double> y_buf{sycl::range(A.rows())};
-    A.mult(x_buf, y_buf, queue);
-    // r = A*x - b
-    sycl::buffer<double> b_buf{b.data(), sycl::range(A.rows())};
-    sycl::buffer<double> r_buf{sycl::range(A.rows())};
-    spmv::axpy(A.rows(), -1.0, b_buf, y_buf, r_buf, queue);
-    spmv::squared_norm(l2g->local_size(), r_buf, &rnorm, queue);
-    MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-  }
+  // Get norm of solution vector
+  double xnorm;
+  spmv::dot<double>(M, x, x, &xnorm, queue).wait();
+  double xnorm_sum;
+  MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
   if (mpi_rank == 0) {
     cout << "r.norm = " << sqrt(rnorm_sum) << "\n";
@@ -123,6 +118,12 @@ int cg_main(int argc, char** argv)
 
   if (mpi_rank == 0)
     cout << "----------------------------\n";
+
+  // Cleanup
+  exec->free(b);
+  exec->free(x);
+  exec->free(x_padded);
+  exec->free(r);
 
   return 0;
 }

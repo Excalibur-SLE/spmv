@@ -34,6 +34,8 @@ void ReferenceExecutor::_copy(void* dst_ptr, const void* src_ptr,
                               size_t num_bytes) const
 {
   if (num_bytes > 0) {
+    if (dst_ptr == src_ptr)
+      return;
     std::memcpy(dst_ptr, src_ptr, num_bytes);
   }
 }

@@ -1,13 +1,13 @@
 // Copyright (C) 2018-2020 Chris Richardson (chris@bpi.cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include <Eigen/Dense>
 #include <chrono>
 #include <iostream>
 #include <memory>
+
+#include <mkl.h>
 #include <mpi.h>
 
-#include "CreateA.h"
 #include <spmv/spmv.h>
 
 void spmv_main(int argc, char** argv)
@@ -21,21 +21,19 @@ void spmv_main(int argc, char** argv)
   if (argc == 2) {
     argv1 = argv[1];
   } else {
-    throw std::runtime_error("Use: ./spmv_demo <matrix_file>");
+    throw std::runtime_error("Use: ./demo_spmv <matrix_file>");
   }
 
   // Keep list of timings
   std::map<std::string, std::chrono::duration<double>> timings;
 
   auto timer_start = std::chrono::system_clock::now();
-  // Either create a simple 1D stencil
-  // spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 20000000);
-  // Or read file created with "-ksp_view_mat binary" option
+  // Read file created with "-ksp_view_mat binary" option
   bool symmetric = false;
   // Define communication model
   spmv::CommunicationModel cm = spmv::CommunicationModel::collective_blocking;
   // Define device executor
-  std::shared_ptr<spmv::DeviceExecutor> exec
+  std::shared_ptr<spmv::ReferenceExecutor> exec
       = spmv::ReferenceExecutor::create();
   spmv::Matrix<double> A = spmv::read_petsc_binary_matrix(argv1, MPI_COMM_WORLD,
                                                           exec, symmetric, cm);
@@ -54,13 +52,13 @@ void spmv_main(int argc, char** argv)
     std::cout << "Creating vector of size " << N << "\n";
 
   // Vector with extra space for ghosts at end
-  Eigen::VectorXd psp(l2g->local_size() + l2g->num_ghosts());
+  double* x = exec->alloc<double>(l2g->local_size() + l2g->num_ghosts());
 
   // Set up values in local range
   int r0 = l2g->global_offset();
   for (int i = 0; i < M; ++i) {
     double z = (double)(i + r0) / double(N);
-    psp[i] = exp(-10 * pow(5 * (z - 0.5), 2.0));
+    x[i] = exp(-10 * pow(5 * (z - 0.5), 2.0));
   }
 
   timer_end = std::chrono::system_clock::now();
@@ -72,34 +70,34 @@ void spmv_main(int argc, char** argv)
     std::cout << "Applying matrix " << n_apply << " times\n";
 
   // Temporary variable
-  Eigen::VectorXd q(M);
+  double* y = exec->alloc<double>(M);
 
   // Warm-up
-  l2g->update(psp.data());
-  q = A.mult(psp);
+  l2g->update(x);
+  A.mult(x, y);
 
   for (int i = 0; i < n_apply; ++i) {
 
     MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
-    l2g->update(psp.data());
+    l2g->update(x);
     timer_end = std::chrono::system_clock::now();
     timings["2.SpUpdate"] += (timer_end - timer_start);
 
     MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
-    q = A.mult(psp);
+    A.mult(x, y);
     timer_end = std::chrono::system_clock::now();
     timings["3.SpMV"] += (timer_end - timer_start);
 
     MPI_Barrier(MPI_COMM_WORLD);
     timer_start = std::chrono::system_clock::now();
-    psp.head(M) = q;
+    exec->copy(x, y, M);
     timer_end = std::chrono::system_clock::now();
     timings["4.Copy"] += (timer_end - timer_start);
   }
 
-  double pnorm_local = psp.head(M).squaredNorm();
+  double pnorm_local = cblas_ddot(M, x, 1, x, 1);
   double pnorm;
   MPI_Allreduce(&pnorm_local, &pnorm, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   pnorm = sqrt(pnorm);
@@ -130,22 +128,16 @@ void spmv_main(int argc, char** argv)
     std::cout << "----------------------------\n";
     std::cout << "norm = " << pnorm << "\n";
   }
+
+  // Cleanup
+  exec->free(x);
+  exec->free(y);
 }
 
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-#ifdef _OPENMP
-  int provided;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
-  if (provided < MPI_THREAD_FUNNELED) {
-    std::cout << "The threading support level is lesser than required"
-              << std::endl;
-    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-  }
-#else
   MPI_Init(&argc, &argv);
-#endif
 
   spmv_main(argc, argv);
 

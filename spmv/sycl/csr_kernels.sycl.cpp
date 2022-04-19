@@ -270,8 +270,8 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
                               sycl::memory_scope::system>
                  atomic_out(out[col]);
 #else
-             sycl::ONEAPI::atomic_ref<T, sycl::ONEAPI::memory_order::relaxed,
-                                      sycl::ONEAPI::memory_scope::system,
+             sycl::ext::oneapi::atomic_ref<T, sycl::memory_order::relaxed,
+                                      sycl::memory_scope::system,
                                       sycl::access::address_space::global_space>
                  atomic_out(out[col]);
 #endif
@@ -283,8 +283,8 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
                             sycl::memory_scope::system>
                atomic_out(out[i]);
 #else
-           sycl::ONEAPI::atomic_ref<T, sycl::ONEAPI::memory_order::relaxed,
-                                    sycl::ONEAPI::memory_scope::system,
+           sycl::ext::oneapi::atomic_ref<T, sycl::memory_order::relaxed,
+                                    sycl::memory_scope::system,
                                     sycl::access::address_space::global_space>
                atomic_out(out[i]);
 #endif

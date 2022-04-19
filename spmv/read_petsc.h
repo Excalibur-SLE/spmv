@@ -5,7 +5,6 @@
 #include "config.h"
 #include "spmv_export.h"
 
-#include <Eigen/Dense>
 #include <memory>
 #include <mpi.h>
 #include <string>
@@ -44,5 +43,7 @@ Matrix<double> read_petsc_binary_matrix(
 /// @param filename Filename
 /// @return Vector of values
 SPMV_EXPORT
-Eigen::VectorXd read_petsc_binary_vector(MPI_Comm comm, std::string filename);
+double* read_petsc_binary_vector(MPI_Comm comm,
+                                 std::shared_ptr<DeviceExecutor> exec,
+                                 std::string filename);
 } // namespace spmv

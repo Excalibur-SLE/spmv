@@ -1,7 +1,9 @@
+// Copyright (C) 2020 Chris Richardson (chris@bpi.cam.ac.uk) and Jeffrey Salmond
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
 #pragma once
+#include "spmv_export.h"
 
 #include <mpi.h>
 
@@ -9,23 +11,25 @@ namespace spmv
 {
 
 // Forward declarations
-class CudaExecutor;
 template <typename T>
 class Matrix;
+class OmpExecutor;
 
 /// @brief Solve **A.x=b** iteratively with Conjugate Gradient
 ///
 /// Input
 /// @param comm MPI communicator
+/// @param exec Device executor
 /// @param A LHS matrix
 /// @param b RHS vector
+/// @param x LHS vector
 /// @param max_its Maximum iteration count
 /// @param rtol Relative tolerance
 ///
-/// @return tuple of result **x** and number of iterations
+/// @return number of iterations
 ///
-SPMV_EXPORT
-int cg(MPI_Comm comm, CudaExecutor& exec, const Matrix<double>& A,
-       const double* b, double* x, int max_its, double rtol);
+SPMV_EXPORT int cg(MPI_Comm comm, OmpExecutor& exec,
+                   const spmv::Matrix<double>& A, double* b, double* x,
+                   int kmax, double rtol);
 
 } // namespace spmv

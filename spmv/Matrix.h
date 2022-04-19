@@ -73,10 +73,6 @@ public:
   size_t format_size() const;
 
   /// MatVec operator
-  /// Interface using Eigen vectors
-  Eigen::Matrix<T, Eigen::Dynamic, 1>
-  mult(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const;
-  // Interface using pointers
   void mult(T* __restrict__ x, T* __restrict__ y) const;
 
   /// MatVec operator for A^T x

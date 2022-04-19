@@ -1,10 +1,10 @@
 // Copyright (C) 2018-2020 Chris Richardson (chris@bpi.cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include <Eigen/Dense>
 #include <chrono>
 #include <iostream>
 #include <memory>
+
 #include <mpi.h>
 
 #include <spmv/spmv.h>
@@ -28,7 +28,13 @@ void cg_main(int argc, char** argv)
   MPI_Comm_free(&local_comm);
   int num_devices = 0;
   cudaGetDeviceCount(&num_devices);
-  cudaSetDevice(local_rank % num_devices);
+  int device_id = local_rank % num_devices;
+
+  // Define device executor
+  std::shared_ptr<spmv::DeviceExecutor> exec_host
+      = spmv::ReferenceExecutor::create();
+  std::shared_ptr<spmv::CudaExecutor> exec
+      = spmv::CudaExecutor::create(device_id, exec_host);
 
   // Keep list of timings
   std::map<std::string, std::chrono::duration<double>> timings;
@@ -46,15 +52,12 @@ void cg_main(int argc, char** argv)
   // Read matrix
   bool symmetric = false;
   spmv::CommunicationModel cm = spmv::CommunicationModel::p2p_blocking;
-  std::shared_ptr<spmv::DeviceExecutor> exec_host
-      = spmv::ReferenceExecutor::create();
-  std::shared_ptr<spmv::CudaExecutor> exec
-      = spmv::CudaExecutor::create(0, exec_host);
   spmv::Matrix<double> A = spmv::read_petsc_binary_matrix(argv1, MPI_COMM_WORLD,
                                                           exec, symmetric, cm);
 
   // Read vector
-  auto b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, argv2);
+  double* b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, exec, argv2);
+  double* x = exec->alloc<double>(A.rows());
 
   // Get local and global sizes
   std::shared_ptr<const spmv::L2GMap> l2g = A.col_map();
@@ -72,25 +75,31 @@ void cg_main(int argc, char** argv)
   // Turn on profiling for solver only
   MPI_Pcontrol(1);
   timer_start = std::chrono::system_clock::now();
-  auto [x_dev, num_its]
-      = spmv::cg(MPI_COMM_WORLD, *exec, A, b.data(), max_its, rtol);
+  int num_its = spmv::cg(MPI_COMM_WORLD, *exec, A, b, x, max_its, rtol);
   timer_end = std::chrono::system_clock::now();
   timings["1.Solve"] += (timer_end - timer_start);
   MPI_Pcontrol(0);
 
-  // Test result on host
+  // Test result
+  CHECK_CUBLAS(cublasSetPointerMode(exec->get_cublas_handle(),
+                                    CUBLAS_POINTER_MODE_HOST));
+  std::int64_t M = l2g->local_size();
   int N_padded = l2g->local_size() + l2g->num_ghosts();
-  double* x_host = new double[N_padded]();
-  cudaMemcpy(x_host, x_dev, N_padded * sizeof(double), cudaMemcpyDeviceToHost);
-  l2g->update(x_host);
-  Eigen::Map<Eigen::VectorXd> x(x_host, N_padded);
-  Eigen::VectorXd r = A.mult(x) - b;
-  double rnorm = r.squaredNorm();
+  double* x_padded = exec->alloc<double>(N_padded);
+  exec->copy(x_padded, x, l2g->local_size());
+  l2g->update(x_padded);
+  double* r = exec->alloc<double>(M);
+  A.mult(x_padded, r);
+  double rnorm;
+  double alpha = -1.;
+  CHECK_CUBLAS(cublasDaxpy(exec->get_cublas_handle(), M, &alpha, b, 1, r, 1));
+  CHECK_CUBLAS(cublasDdot(exec->get_cublas_handle(), M, r, 1, r, 1, &rnorm));
   double rnorm_sum;
   MPI_Allreduce(&rnorm, &rnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
   // Get norm of solution vector
-  double xnorm = x.head(l2g->local_size()).squaredNorm();
+  double xnorm;
+  CHECK_CUBLAS(cublasDdot(exec->get_cublas_handle(), M, x, 1, x, 1, &xnorm));
   double xnorm_sum;
   MPI_Allreduce(&xnorm, &xnorm_sum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
@@ -124,8 +133,10 @@ void cg_main(int argc, char** argv)
     std::cout << "----------------------------\n";
 
   // Cleanup
-  free(x_host);
-  cudaFree(x_dev);
+  exec->free(x);
+  exec->free(x_padded);
+  exec->free(r);
+  exec->free(b);
 }
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)

@@ -12,22 +12,7 @@ namespace spmv
 
 template <typename T>
 class Matrix;
-
-/// @brief Solve **A.x=b** iteratively with Conjugate Gradient in SYCL
-///
-/// Input
-/// @param comm MPI communicator
-/// @param A LHS matrix
-/// @param b RHS vector as a SYCL buffer
-/// @param max_its Maximum iteration count
-/// @param rtol Relative tolerance
-///
-/// @return tuple of result **x** as host pointer and number of iterations
-///
-SPMV_EXPORT
-std::tuple<double*, int> cg(MPI_Comm comm, const spmv::Matrix<double>& A,
-                            sycl::buffer<double>& b_buf, int kmax, double rtol,
-                            sycl::queue& queue);
+class SyclExecutor;
 
 /// @brief Solve **A.x=b** iteratively with Conjugate Gradient in SYCL
 ///
@@ -41,7 +26,6 @@ std::tuple<double*, int> cg(MPI_Comm comm, const spmv::Matrix<double>& A,
 /// @return tuple of result **x** as USM pointer and number of iterations
 ///
 SPMV_EXPORT
-std::tuple<double*, int> cg(MPI_Comm comm, const spmv::Matrix<double>& A,
-                            double* b, int kmax, double rtol,
-                            sycl::queue& queue);
+int cg(MPI_Comm comm, SyclExecutor& exec, const spmv::Matrix<double>& A,
+       const double* b, double* x, int kmax, double rtol);
 } // namespace spmv

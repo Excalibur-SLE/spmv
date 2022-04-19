@@ -1,7 +1,7 @@
 if(ENABLE_HIPSYCL)
   add_sycl_to_target(TARGET ${LIB_NAME})
 endif()
-target_sources(${LIB_NAME} PRIVATE sycl_executor.cpp csr_kernels.sycl.cpp)
+target_sources(${LIB_NAME} PRIVATE sycl_executor.cpp csr_kernels.sycl.cpp cg.sycl.cpp)
 
 # Extend header path for build and install phases
 target_include_directories(${LIB_NAME}

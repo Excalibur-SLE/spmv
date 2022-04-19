@@ -2,7 +2,7 @@
 // SPDX-License-Identifier:    MIT
 
 #include "csr_kernels.h"
-#include <iostream>
+
 namespace spmv
 {
 

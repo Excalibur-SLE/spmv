@@ -2,11 +2,6 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include "read_petsc.h"
-#include "L2GMap.h"
-#include "Matrix.h"
-#include "device_executor.h"
-
 #include <Eigen/Sparse>
 #include <cassert>
 #include <fstream>
@@ -14,6 +9,11 @@
 #include <map>
 #include <memory>
 #include <vector>
+
+#include "L2GMap.h"
+#include "Matrix.h"
+#include "device_executor.h"
+#include "read_petsc.h"
 
 // Divide size into N ~equal chunks
 std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)
@@ -226,10 +226,12 @@ spmv::read_petsc_binary_matrix(std::string filename, MPI_Comm comm,
     return spmv::Matrix<double>(A, col_map, row_map, exec);
 }
 //-----------------------------------------------------------------------------
-Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,
-                                               std::string filename)
+double* spmv::read_petsc_binary_vector(MPI_Comm comm,
+                                       std::shared_ptr<DeviceExecutor> exec,
+                                       std::string filename)
 {
-  Eigen::VectorXd vec;
+  double* vec_host = nullptr;
+  double* vec_dev = nullptr;
 
   int mpi_rank;
   MPI_Comm_rank(comm, &mpi_rank);
@@ -264,7 +266,7 @@ Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,
 
     std::int64_t nrows_local = ranges[mpi_rank + 1] - ranges[mpi_rank];
 
-    vec.resize(nrows_local);
+    vec_host = exec->get_host().alloc<double>(nrows_local);
 
     std::streampos value_data_pos
         = file.tellg() + (std::streampos)(ranges[mpi_rank] * 8);
@@ -286,11 +288,16 @@ Eigen::VectorXd spmv::read_petsc_binary_vector(MPI_Comm comm,
       std::swap(*(vptr + 3), *(vptr + 4));
       double val = *((double*)vptr);
       vptr += 8;
-      vec[row - ranges[mpi_rank]] = val;
+      vec_host[row - ranges[mpi_rank]] = val;
     }
-  } else
-    throw std::runtime_error("Could not open file");
 
-  return vec;
+    vec_dev = exec->alloc<double>(nrows_local);
+    exec->copy_from(vec_dev, exec->get_host(), vec_host, nrows_local);
+    exec->get_host().free(vec_host);
+  } else {
+    throw std::runtime_error("Could not open file");
+  }
+
+  return vec_dev;
 }
 //-----------------------------------------------------------------------------

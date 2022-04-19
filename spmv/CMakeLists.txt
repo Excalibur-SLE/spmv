@@ -5,11 +5,18 @@ endif()
 if(ENABLE_OPENMP_OFFLOAD)
   set(_OPENMP_OFFLOAD 1)
 endif()
-if(ENABLE_HIPSYCL OR ENABLE_DPCPP)
+if(ENABLE_DPCPP)
+  set(_DPCPP 1)
+  set(_SYCL 1)
+endif()
+if(ENABLE_HIPSYCL)
   set(_SYCL 1)
 endif()
 if(ENABLE_CUDA)
   set(_CUDA 1)
+endif()
+if(ENABLE_MKL)
+  set(_MKL 1)
 endif()
 configure_file(${PROJECT_SOURCE_DIR}/spmv/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
@@ -70,6 +77,8 @@ target_compile_definitions(${LIB_NAME}
 # Set library dependencies
 target_link_libraries(${LIB_NAME}
   PUBLIC Eigen3::Eigen MPI::MPI_C MPI::MPI_CXX
+  PRIVATE BLAS::BLAS
+  PRIVATE $<$<BOOL:${ENABLE_DPCPP}>:MKL::MKL_DPCPP>
   PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
   PRIVATE $<$<BOOL:${OpenACC_CXX_FOUND}>:OpenACC::OpenACC_CXX>
   )
@@ -87,13 +96,14 @@ endif()
 # Include optional code
 if(ENABLE_OPENMP)
   add_subdirectory(openmp)
-elseif(ENABLE_OPENMP_OFFLOAD)
+endif()
+if(ENABLE_OPENMP_OFFLOAD)
   add_subdirectory(openmp_offload)
-elseif(ENABLE_OPENACC)
-  add_subdirectory(openacc)
-elseif(ENABLE_DPCPP OR ENABLE_HIPSYCL)
+endif()
+if(ENABLE_DPCPP OR ENABLE_HIPSYCL)
   add_subdirectory(sycl)
-elseif(ENABLE_CUDA)
+endif()
+if(ENABLE_CUDA)
   add_subdirectory(cuda)
 endif()
 

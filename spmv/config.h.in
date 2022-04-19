@@ -15,6 +15,10 @@
 #cmakedefine _SYCL
 #endif
 
+#ifndef _DPCPP
+#cmakedefine _DPCPP
+#endif
+
 #ifndef _CUDA
 #cmakedefine _CUDA
 #endif

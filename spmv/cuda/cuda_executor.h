@@ -64,6 +64,7 @@ public:
 
   // Extended API
   void set_cuda_stream(cudaStream_t stream);
+  void reset_cuda_stream();
   cudaStream_t get_cuda_stream() const { return _stream; }
   cublasHandle_t get_cublas_handle() const { return _cublas_handle; }
   cusparseHandle_t get_cusparse_handle() const { return _cusparse_handle; }

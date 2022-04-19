@@ -6,7 +6,6 @@
 #include <memory>
 #include <mpi.h>
 
-#include "CreateA.h"
 #include <spmv/spmv.h>
 #include <spmv/sycl/blas_sycl.h>
 
@@ -30,9 +29,7 @@ void spmv_main(int argc, char** argv)
   std::map<std::string, std::chrono::duration<double>> timings;
 
   auto timer_start = std::chrono::system_clock::now();
-  // Either create a simple 1D stencil
-  // spmv::Matrix<double> A = create_A(MPI_COMM_WORLD, 20000000);
-  // Or read matrix from file created with "-ksp_view_mat binary" option
+  // Read matrix from file created with "-ksp_view_mat binary" option
   bool symmetric = false;
   spmv::CommunicationModel cm = spmv::CommunicationModel::p2p_blocking;
   std::shared_ptr<spmv::DeviceExecutor> exec

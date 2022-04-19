@@ -2,7 +2,9 @@
 # 3.8 for CUDA language
 # 3.12 for add_compile_definitions
 # 3.13 for modifying targets in subdirectories using add_subdirectory()
-cmake_minimum_required(VERSION 3.13)
+# 3.16 for OpenACC imported target
+# 3.18 for BLAS imported target
+cmake_minimum_required(VERSION 3.18)
 
 # Note that the default settings for RelWithDebInfo will disable assertions
 set(CMAKE_BUILD_TYPE RelWithDebInfo)
@@ -42,16 +44,23 @@ file(RELATIVE_PATH relDir2
  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
 set(CMAKE_INSTALL_RPATH $ORIGIN/${relDir1}:$ORIGIN/${relDir2})
 
+option(ENABLE_OPENMP "Use OpenMP for shared-memory parallelization" OFF)
+option(ENABLE_OPENMP_OFFLOAD "Use OpenMP for accelerator offloading" OFF)
+option(ENABLE_OPENACC "Use OpenACC for accelerator offloading" OFF)
+option(ENABLE_DPCPP "Use DPC++ for shared-memory parallelization" OFF)
+option(ENABLE_HIPSYCL "Use hipSYCL for shared-memory parallelization" OFF)
+option(ENABLE_CUDA "Use CUDA (cuBLAS, cuSPARSE) for GPU offloading" OFF)
+option(ENABLE_MKL "Use Intel MKL to accelerate SpMV kernels whenever possible" OFF)
+
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(MPI REQUIRED COMPONENTS C CXX)
 
-option(ENABLE_OPENMP "Use OpenMP for shared-memory parallelization" OFF)
-option(ENABLE_OPENMP_OFFLOAD "Use OpenMP for accelerator offloading" OFF)
-option(ENABLE_DPCPP "Use DPC++ for shared-memory parallelization" OFF)
-option(ENABLE_HIPSYCL "Use hipSYCL for shared-memory parallelization" OFF)
-option(ENABLE_MKL_SEQUENTIAL "Use sequential (non-threaded) Intel MKL to accelerate SpMV kernels whenever possible" OFF)
-option(ENABLE_MKL_PARALLEL "Use threaded Intel MKL to accelerate SpMV kernels whenever possible" OFF)
-option(ENABLE_CUDA "Use CUDA (cuBLAS, cuSPARSE) for GPU offloading" OFF)
+if (ENABLE_OPENMP)
+  set(BLA_VENDOR Intel10_64lp)
+else()
+  set(BLA_VENDOR Intel10_64lp_seq)
+endif()
+find_package(BLAS REQUIRED)
 
 if(ENABLE_OPENMP OR ENABLE_OPENMP_OFFLOAD)
   find_package(OpenMP COMPONENTS CXX)
@@ -66,12 +75,12 @@ if(ENABLE_OPENMP OR ENABLE_OPENMP_OFFLOAD)
   endif()
 endif()
 
+if(ENABLE_OPENACC)
+  find_package(OpenACC)
+endif()
+
 if(ENABLE_DPCPP)
-  if(DEFINED ENV{ONEAPI_ROOT})
-    message(STATUS "Using DPC++ toolchain in: $ENV{ONEAPI_ROOT}")
-  else()
-    message(FATAL_ERROR "Please set ONEAPI_ROOT using the vendor-provided script to enable use of the DPC++ toolchain.")
-  endif()
+  find_package(MKL CONFIG REQUIRED)
   # Check compiler is set to dpcpp
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
     message(FATAL_ERROR "Please set dpcpp as the C++ compiler.")
@@ -93,26 +102,8 @@ endif()
 if(ENABLE_HIPSYCL)
   find_package(hipSYCL CONFIG REQUIRED)
   find_package(CUDAToolkit)
-  # Change C++ standard to C++17
-  set(CMAKE_CXX_STANDARD 17)
   # We rely on the __HIPSYCL__ macro
   add_compile_options(-Wno-unknown-cuda-version -Wno-unknown-attributes)
-endif()
-
-if(ENABLE_MKL_SEQUENTIAL)
-  set(BLA_VENDOR Intel10_64lp_seq)
-  find_package(BLAS)
-  if(NOT BLAS_FOUND)
-    message(WARNING "Sequential Intel MKL was requested, but not found.")
-  endif()
-endif()
-
-if(ENABLE_MKL_PARALLEL)
-  set(BLA_VENDOR Intel10_64lp)
-  find_package(BLAS)
-  if(NOT BLAS_FOUND)
-    message(WARNING "Multi-threaded Intel MKL was requested, but not found.")
-  endif()
 endif()
 
 if(ENABLE_CUDA)
@@ -140,7 +131,7 @@ endif()
 
 # Generic compiler flags for development
 add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:-forward-unknown-to-host-compiler>)
-add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-but-set-variable)
+add_compile_options(-Wall -Wextra -pedantic -Wno-unused-parameter) # -Wno-unused-but-set-variable)
 
 add_subdirectory(spmv)
 include_directories(${LIB_NAME} ${CMAKE_CURRENT_SOURCE_DIR})

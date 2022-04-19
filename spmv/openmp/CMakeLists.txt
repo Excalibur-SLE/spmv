@@ -1,4 +1,4 @@
-target_sources(${LIB_NAME} PRIVATE omp_executor.cpp csr_kernels.openmp.cpp)
+target_sources(${LIB_NAME} PRIVATE omp_executor.cpp csr_kernels.openmp.cpp cg.openmp.cpp)
 
 # Extend header path for build and install phases
 target_include_directories(${LIB_NAME} PRIVATE
@@ -10,7 +10,7 @@ target_include_directories(${LIB_NAME} PUBLIC
   )
 
 # Install the header files manually, since CMake does not respect subdirectories
-set(publicHeaders "omp_executor.h")
+set(publicHeaders "omp_executor.h cg_openmp.h")
 foreach(header ${publicHeaders})
   install(FILES ${header} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME}/openmp")
 endforeach()

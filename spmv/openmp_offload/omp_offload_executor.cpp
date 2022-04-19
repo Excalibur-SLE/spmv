@@ -40,7 +40,7 @@ void* OmpOffloadExecutor::_alloc(size_t num_bytes) const
   void* ptr = nullptr;
   ptr = omp_target_alloc(num_bytes, this->_dev_info.device_id);
   if (ptr == nullptr) {
-    std::cerr << "ERROR: no space left on device" << std::endl;
+    std::cerr << "ERROR: allocation on device failed" << std::endl;
     exit(1);
   }
 

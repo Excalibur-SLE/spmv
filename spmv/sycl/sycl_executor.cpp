@@ -20,10 +20,10 @@ const DeviceExecutor& SyclExecutor::get_host() const { return *this; }
 int SyclExecutor::get_num_devices() const
 {
   auto platforms = sycl::platform::get_platforms();
-  int num_devices
-      = platforms
-            .get_devices(sycl::info::device_type = sycl::info::device_type::all)
-            .size();
+  int num_devices = 0;
+  for (auto& e : platforms) {
+    num_devices += e.get_devices(sycl::info::device_type::all).size();
+  }
   return num_devices;
 }
 
@@ -66,7 +66,7 @@ void SyclExecutor::_memset(void* ptr, int value, size_t num_bytes) const
 void SyclExecutor::_copy(void* dst_ptr, const void* src_ptr,
                          size_t num_bytes) const
 {
-  _queue->copy((char*)src_ptr, (char*)dst_ptr, num_bytes).wait();
+  _queue->memcpy((char*)dst_ptr, (char*)src_ptr, num_bytes).wait();
 }
 
 void SyclExecutor::_copy_async(void* dst_ptr, const void* src_ptr,

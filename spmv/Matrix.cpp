@@ -115,19 +115,6 @@ size_t Matrix<T>::format_size() const
 }
 //-----------------------------------------------------------------------------
 template <typename T>
-Eigen::Matrix<T, Eigen::Dynamic, 1>
-Matrix<T>::mult(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const
-{
-  if (_symmetric && _col_map->overlapping())
-    return spmv_sym_overlap(x);
-  if (_symmetric)
-    return spmv_sym(x);
-  if (_col_map->overlapping())
-    return spmv_overlap(x);
-  return spmv(x);
-}
-//-----------------------------------------------------------------------------
-template <typename T>
 void Matrix<T>::mult(T* x, T* y) const
 {
   if (_symmetric && _col_map->overlapping())

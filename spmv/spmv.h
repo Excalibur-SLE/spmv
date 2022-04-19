@@ -10,10 +10,14 @@
 #include "device_executor.h"
 #include "reference_executor.h"
 #ifdef _OPENMP_HOST
+#include "openmp/cg_openmp.h"
 #include "openmp/omp_executor.h"
 #endif
 #ifdef _OPENMP_OFFLOAD
 #include "openmp_offload/omp_offload_executor.h"
+#endif
+#ifdef _OPENACC
+#include "openacc/openacc_executor.h"
 #endif
 #ifdef _CUDA
 #include "cuda/cg_cuda.h"

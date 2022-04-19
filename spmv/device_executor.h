@@ -11,13 +11,6 @@
 namespace spmv
 {
 
-// Forward declare all derived classes of DeviceExecutor
-class ReferenceExecutor;
-class OmpExecutor;
-class OmpOffloadExecutor;
-class SyclExecutor;
-class CudaExecutor;
-
 // Forward declare all SpMV classes
 template <typename T>
 class COOMatrix;

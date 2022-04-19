@@ -5,6 +5,12 @@
 #include <CL/sycl.hpp>
 #include <complex>
 
+#ifdef _DPCPP
+#include "oneapi/mkl.hpp"
+#else
+#include "blas_sycl.h"
+#endif
+
 namespace sycl = cl::sycl;
 
 namespace spmv
@@ -22,39 +28,22 @@ namespace spmv
 /// Output
 /// @param r Output vector
 template <typename T>
-void axpy(size_t N, T alpha, sycl::buffer<T>& x_buf, sycl::buffer<T>& y_buf,
-          sycl::buffer<T>& r_buf, sycl::queue& queue)
-{
-  queue.submit([&](sycl::handler& cgh) {
-    sycl::accessor x{x_buf, cgh, sycl::read_only};
-    sycl::accessor y{y_buf, cgh, sycl::read_only};
-#ifdef __HIPSYCL__
-    sycl::accessor r{r_buf, cgh, sycl::write_only, sycl::no_init};
-#else
-    sycl::accessor r{r_buf, cgh, sycl::write_only, sycl::noinit};
-#endif
-
-    cgh.parallel_for<>(sycl::range<1>{N}, [=](sycl::item<1> item) {
-      int i = item.get_id(0);
-      r[i] = alpha * x[i] + y[i];
-    });
-  });
-}
-
-template <typename T>
-sycl::event axpy(size_t N, T alpha, const T* x, const T* y, T* r,
-                 sycl::queue& queue,
+sycl::event axpy(size_t N, T alpha, const T* x, T* y, sycl::queue& queue,
                  const std::vector<sycl::event>& dependencies = {})
 {
+#ifdef _DPCPP
+  return oneapi::mkl::blas::row_major::axpy(queue, N, alpha, x, 1, y, 1,
+                                            dependencies);
+#else
   sycl::event event = queue.submit([&](sycl::handler& cgh) {
     cgh.depends_on(dependencies);
     cgh.parallel_for<>(sycl::range<1>{N}, [=](sycl::item<1> item) {
       int i = item.get_id(0);
-      r[i] = alpha * x[i] + y[i];
+      y[i] = alpha * x[i] + y[i];
     });
   });
-
   return event;
+#endif
 }
 
 /// @brief Compute the dot product of two vectors
@@ -68,63 +57,12 @@ sycl::event axpy(size_t N, T alpha, const T* x, const T* y, T* r,
 /// Output
 /// @return Dot product of vectors x and y
 template <typename T>
-void dot(size_t N, sycl::buffer<T>& x_buf, sycl::buffer<T>& y_buf, T* result,
-         sycl::queue& queue)
-{
-  if constexpr (std::is_same<T, std::complex<double>>::value
-                or std::is_same<T, std::complex<float>>::value)
-    throw std::runtime_error("Complex support");
-
-  auto sum = sycl::malloc_shared<T>(1, queue);
-  queue.wait();
-  // Compute a dot-product by reducing all computed values using standard plus
-  // functor
-  auto device = queue.get_device();
-  if (device.is_gpu()) {
-    const int M = 32;
-    const int mod = N % M;
-    const int N_padded = (mod == 0) ? N : N + M - mod;
-
-    // Compute a dot-product by reducing all computed values using standard plus
-    // functor
-    queue
-        .submit([&](sycl::handler& cgh) {
-          sycl::accessor x{x_buf, cgh, sycl::read_only};
-          sycl::accessor y{y_buf, cgh, sycl::read_only};
-
-          cgh.parallel_for<>(sycl::nd_range<1>{N_padded, M},
-                             sycl::reduction(sum, std::plus<T>()),
-                             [=](sycl::nd_item<1> item, auto& sum) {
-                               int i = item.get_global_id(0);
-                               sum.combine((i < N_padded) ? (x[i] * y[i])
-                                                          : 0.0);
-                             });
-        })
-        .wait_and_throw();
-  } else {
-    queue
-        .submit([&](sycl::handler& cgh) {
-          sycl::accessor x{x_buf, cgh, sycl::read_only};
-          sycl::accessor y{y_buf, cgh, sycl::read_only};
-
-          cgh.parallel_for<>(sycl::nd_range<1>{N, 1},
-                             sycl::reduction(sum, std::plus<T>()),
-                             [=](sycl::nd_item<1> item, auto& sum) {
-                               int i = item.get_global_id(0);
-                               sum.combine(x[i] * y[i]);
-                             });
-        })
-        .wait_and_throw();
-  }
-
-  *result = sum[0];
-  sycl::free(sum, queue);
-}
-
-template <typename T>
 sycl::event dot(size_t N, const T* x, const T* y, T* result, sycl::queue& queue,
                 const std::vector<sycl::event>& dependencies = {})
 {
+#ifdef _DPCPP
+  return oneapi::mkl::blas::row_major::dot(queue, N, x, 1, y, 1, result);
+#else
   if constexpr (std::is_same<T, std::complex<double>>::value
                 or std::is_same<T, std::complex<float>>::value)
     throw std::runtime_error("Complex support");
@@ -171,71 +109,7 @@ sycl::event dot(size_t N, const T* x, const T* y, T* result, sycl::queue& queue,
   *result = sum[0];
   sycl::free(sum, queue);
   return event;
-}
-
-template <typename T>
-void dot(size_t N, sycl::buffer<T>& x_buf, sycl::buffer<T>& y_buf,
-         sycl::buffer<T>& result_buf, sycl::queue& queue)
-{
-  if constexpr (std::is_same<T, std::complex<double>>::value
-                or std::is_same<T, std::complex<float>>::value)
-    throw std::runtime_error("Complex support");
-
-  // Compute a dot-product by reducing all computed values using standard plus
-  // functor
-  auto device = queue.get_device();
-  if (device.is_gpu()) {
-    const int M = 32;
-    const int mod = N % M;
-    const int N_padded = (mod == 0) ? N : N + M - mod;
-
-    // Compute a dot-product by reducing all computed values using standard plus
-    // functor
-    queue
-        .submit([&](sycl::handler& cgh) {
-          sycl::accessor x{x_buf, cgh, sycl::read_only};
-          sycl::accessor y{y_buf, cgh, sycl::read_only};
-          sycl::accessor sum{result_buf, cgh, sycl::write_only};
-
-          cgh.parallel_for<>(sycl::nd_range<1>{N_padded, M},
-                             sycl::reduction(sum, std::plus<T>()),
-                             [=](sycl::nd_item<1> item, auto& sum) {
-                               int i = item.get_global_id(0);
-                               sum.combine((i < N_padded) ? (x[i] * y[i])
-                                                          : 0.0);
-                             });
-        })
-        .wait_and_throw();
-  } else {
-    queue
-        .submit([&](sycl::handler& cgh) {
-          sycl::accessor x{x_buf, cgh, sycl::read_only};
-          sycl::accessor y{y_buf, cgh, sycl::read_only};
-          sycl::accessor sum{result_buf, cgh, sycl::write_only};
-
-          cgh.parallel_for<>(sycl::nd_range<1>{N, 1},
-                             sycl::reduction(sum, std::plus<T>()),
-                             [=](sycl::nd_item<1> item, auto& sum) {
-                               int i = item.get_global_id(0);
-                               sum.combine(x[i] * y[i]);
-                             });
-        })
-        .wait_and_throw();
-  }
-}
-
-template <typename T>
-void squared_norm(size_t N, sycl::buffer<T>& x_buf, T* result,
-                  sycl::queue& queue)
-{
-  dot(N, x_buf, x_buf, result, queue);
-}
-
-template <typename T>
-void squared_norm(size_t N, sycl::buffer<T>& x_buf, sycl::buffer<T>& result_buf,
-                  sycl::queue& queue)
-{
-  dot(N, x_buf, x_buf, result_buf, queue);
+#endif
 }
 
 template <typename T>
@@ -243,25 +117,6 @@ sycl::event squared_norm(size_t N, const T* x, T* result, sycl::queue& queue,
                          const std::vector<sycl::event>& dependencies = {})
 {
   return dot(N, x, x, result, queue, dependencies);
-}
-
-template <typename T>
-void fused_update(size_t N, T alpha, sycl::buffer<T>& p_buf,
-                  sycl::buffer<T>& x_buf, sycl::buffer<T>& y_buf,
-                  sycl::buffer<T>& r_buf, sycl::queue& queue)
-{
-  queue.submit([&](sycl::handler& cgh) {
-    sycl::accessor p{p_buf, cgh, sycl::read_only};
-    sycl::accessor y{y_buf, cgh, sycl::read_only};
-    sycl::accessor x{x_buf, cgh, sycl::read_write};
-    sycl::accessor r{r_buf, cgh, sycl::read_write};
-
-    cgh.parallel_for<>(sycl::range<1>{N}, [=](sycl::item<1> it) {
-      int i = it.get_id(0);
-      x[i] += alpha * p[i];
-      r[i] += -alpha * y[i];
-    });
-  });
 }
 
 template <typename T>

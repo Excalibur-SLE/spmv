@@ -3,19 +3,20 @@
 // SPDX-License-Identifier:    MIT
 
 #include <iomanip>
+#include <iostream>
 #include <memory>
 
 #include <mkl.h>
 
 #include "L2GMap.h"
 #include "Matrix.h"
-#include "cg.h"
-#include "reference_executor.h"
+#include "cg_openmp.h"
+#include "omp_executor.h"
 
 //-----------------------------------------------------------------------------
-int spmv::cg(MPI_Comm comm, spmv::ReferenceExecutor& exec,
-             const spmv::Matrix<double>& A, const double* b, double* x,
-             int kmax, double rtol)
+int spmv::cg(MPI_Comm comm, spmv::OmpExecutor& exec,
+             const spmv::Matrix<double>& A, double* b, double* x, int kmax,
+             double rtol)
 {
   int mpi_rank;
   MPI_Comm_rank(comm, &mpi_rank);

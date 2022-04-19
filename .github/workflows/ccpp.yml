@@ -10,8 +10,10 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install Eigen3
+      shell: bash
       run: sudo apt install -y libmpich-dev libeigen3-dev intel-oneapi-mkl
     - name: Install oneMKL
+      shell: bash
       run: |
         cd /tmp
         wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
@@ -19,16 +21,19 @@ jobs:
         rm GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
         sudo add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"
         sudo apt update
-	sudo apt install intel-oneapi-mkl
+        sudo apt install intel-oneapi-mkl
     - name: Configure
+      shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
-	cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release .
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release .
     - name: Build
+      shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
-	cmake --build . --config Release
+        cmake --build . --config Release
     - name: Run unit tests
+      shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
         ctest -V
@@ -40,8 +45,10 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install Eigen3
+      shell: bash
       run: sudo apt install -y libmpich-dev libeigen3-dev
     - name: Install oneMKL
+      shell: bash
       run: |
         cd /tmp
         wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
@@ -49,16 +56,19 @@ jobs:
         rm GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
         sudo add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"
         sudo apt update
-	sudo apt install intel-oneapi-mkl
+        sudo apt install intel-oneapi-mkl
     - name: Configure
+      shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
-	cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=on .
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=on .
     - name: Build
+      shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
-	cmake --build . --config Release
+        cmake --build . --config Release
     - name: Run unit tests
+      shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
         ctest -V

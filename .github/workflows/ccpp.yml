@@ -26,7 +26,8 @@ jobs:
       shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
-        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release .
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release \
+	-DMKL_ROOT="/opt/intel/oneapi/mkl/latest" .
     - name: Build
       shell: bash
       run: |
@@ -61,7 +62,8 @@ jobs:
       shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
-        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=on .
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release \
+	-DENABLE_OPENMP=on -DMKL_ROOT="/opt/intel/oneapi/mkl/latest" .
     - name: Build
       shell: bash
       run: |

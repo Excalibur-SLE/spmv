@@ -3,18 +3,20 @@
 ## Overview
 
 LIBSPMV is a proof-of-concept distributed-memory Sparse Matrix-Vector Multiplication (SpMV) library. It currently implements pure-MPI and hybrid MPI+X where X is one of the following:
-1. OpenMP for CPUs and GPUs
-2. SYCL
-3. CUDA
+1. OpenMP for CPUs
+2. OpenMP offloading for GPUs
+2. SYCL for CPUs and GPUs
+3. CUDA for NVIDIA GPUs
 
 The communication phase of the SpMV kernel is implemented with multiple MPI-based communication models, including blocking and non-blocking collective and point-to-point communication, as well as one-sided communication. Also, the library focuses on optimizing SpMV for symmetric matrices, which often arise in scientific applications. Finally, the library provides an implementation of the Conjugate Gradient (CG) method for solving large sparse linear systems, using the optimized SpMV kernel.
 
 ## Getting Started
 
 ### Prerequisites
-* CMake >= 3.13
-* C++ compiler with C++14 support (C++17 in case ENABLE_HIPSYCL=on)
+* CMake >= 3.18
+* C++ compiler with C++17 support
 * Eigen >= 3.3.9 (this dependency will be deprecated soon)
+* Intel MKL from the Intel oneAPI toolkit
 * MPI implementation that supports the MPI-3.0 standard and is CUDA-aware (in case ENABLE_CUDA=on)
 
 ### Installation
@@ -31,4 +33,4 @@ It is recommended to build LIBSPMV in a separate directory form the source direc
 - To enable OpenMP offloading on GPUs, use the `-DENABLE_OPENMP_OFFLOAD=on` option.
 - To enable SYCL, use the `-DENABLE_DPCPP=on` option for Intel DPC++ or `-DENABLE_HIPSYCL=on` option for hipSYCL. For hipSYCL, also set the HIPSYCL_TARGETS environment variable to select the target devices, e.g., 'omp;cuda:sm_xx'.
 - To enable GPU offloading with CUDA, use the `-DENABLE_CUDA=on` option with -DCMAKE_CUDA_ARCHITECTURES=<sm_xx> to select the target device's compute capability.
-- To enable use of Intel MKL kernels where possible, use the `-DENABLE_MKL_SEQUENTIAL=on` option for pure-MPI or the `-DENABLE_MKL_PARALLEL=on` option for hybrid MPI+OpenMP.
+- To enable use of Intel MKL sparse BLAS kernels where possible, use the `-DENABLE_MKL=on`.

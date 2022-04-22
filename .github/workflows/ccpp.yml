@@ -85,10 +85,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Install Eigen3
+    - name: Install Eigen3 >= 3.3.9
       shell: bash
-      run: sudo apt install -y libmpich-dev libeigen3-dev
-    - name: Install oneMKL library
+      run: |
+        wget https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+        tar -xf eigen-3.4.0.tar.gz
+        cd eigen-3.4.0
+        mkdir build
+        cd build
+        cmake ../ -DCMAKE_INSTALL_PREFIX=/opt/eigen
+        sudo make install
+    - name: Install oneAPI toolkit
       shell: bash
       run: |
         wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
@@ -102,7 +109,7 @@ jobs:
       shell: bash
       run: |
         source /opt/intel/oneapi/setvars.sh
-        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_DPCPP=on -DCMAKE_CXX_COMPILER=dpcpp .
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_DPCPP=on -DCMAKE_CXX_COMPILER=dpcpp -DEigen3_DIR=/opt/eigen/share/eigen3/cmake .
     - name: Build
       shell: bash
       run: |

@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Install Eigen3 and MPI
       shell: bash
       run: sudo apt install -y libmpich-dev libeigen3-dev
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Install Eigen3
       shell: bash
       run: sudo apt install -y libeigen3-dev

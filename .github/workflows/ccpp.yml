@@ -76,7 +76,7 @@ jobs:
     - name: Run unit tests
       shell: bash
       run: |
-        set -X
+        set -x
         source /opt/intel/oneapi/setvars.sh
         cd build_openmp
         ctest --extra-verbose --output-on-failure --force-new-ctest-process --repeat until-pass:2

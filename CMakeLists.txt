@@ -52,6 +52,15 @@ option(ENABLE_HIPSYCL "Use hipSYCL for shared-memory parallelization" OFF)
 option(ENABLE_CUDA "Use CUDA (cuBLAS, cuSPARSE) for GPU offloading" OFF)
 option(ENABLE_MKL "Use Intel MKL to accelerate SpMV kernels whenever possible" OFF)
 
+# For OpenMP build we need to use the Intel toolchain, as Intel MKL
+# is linked with the libiomp5 library, whose use we cannot enforce
+# with other linkers.
+if (ENABLE_OPENMP)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM" OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+    message(FATAL_ERROR "Please use an Intel C++ compiler for the MPI+OpenMP build")
+  endif()
+endif()
+
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(MPI REQUIRED COMPONENTS C CXX)
 
@@ -71,7 +80,7 @@ if(ENABLE_OPENMP OR ENABLE_OPENMP_OFFLOAD)
       message(STATUS "Will link against OpenMP libraries: ${OpenMP_CXX_LIBRARIES}")
     endif()
   else()
-    message(WARNING "OpenMP was requested, but not found.")
+    message(WARNING "OpenMP was requested, but not found")
   endif()
 endif()
 
@@ -83,7 +92,7 @@ if(ENABLE_DPCPP)
   find_package(MKL CONFIG REQUIRED)
   # Check compiler is set to dpcpp
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
-    message(FATAL_ERROR "Please set dpcpp as the C++ compiler.")
+    message(FATAL_ERROR "Please set dpcpp as the C++ compiler")
   endif()
   add_compile_options(-fsycl -sycl-std=2020 -fsycl-unnamed-lambda)
   # Enable AOT compilation
@@ -116,15 +125,15 @@ if(ENABLE_CUDA)
     # Find required CUDA libraries explicitly
     find_library(CUDART_LIB cudart PATHS ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
     if(CUDART_LIB STREQUAL CUDART_LIB-NOTFOUND)
-      message(FATAL_ERROR "NVIDIA cudart library not found.")
+      message(FATAL_ERROR "NVIDIA cudart library not found")
     endif()
     find_library(CUBLAS_LIB cublas PATHS ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
     if(CUBLAS_LIB STREQUAL CUBLAS_LIB-NOTFOUND)
-      message(FATAL_ERROR "NVIDIA cublas library not found.")
+      message(FATAL_ERROR "NVIDIA cublas library not found")
     endif()
     find_library(CUSPARSE_LIB cusparse PATHS ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
     if(CUSPARSE_LIB STREQUAL CUSPARSE_LIB-NOTFOUND)
-      message(FATAL_ERROR "NVIDIA cusparse library not found.")
+      message(FATAL_ERROR "NVIDIA cusparse library not found")
     endif()
   endif()
 endif()

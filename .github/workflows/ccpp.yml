@@ -20,7 +20,7 @@ jobs:
         rm GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
         sudo add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"
         sudo apt update
-        sudo apt install intel-oneapi-mkl-devel
+        sudo apt install intel-oneapi-mkl
       working-directory: /tmp
     - name: Configure
       shell: bash
@@ -58,7 +58,7 @@ jobs:
         rm GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
         sudo add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"
         sudo apt update
-        sudo apt install intel-oneapi-mkl-devel
+        sudo apt install intel-oneapi-mkl
       working-directory: /tmp
     - name: Configure
       shell: bash
@@ -77,4 +77,39 @@ jobs:
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
         source /opt/intel/oneapi/compiler/latest/env/vars.sh
+        ctest -V
+
+  build_sycl:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Eigen3
+      shell: bash
+      run: sudo apt install -y libmpich-dev libeigen3-dev
+    - name: Install oneMKL library
+      shell: bash
+      run: |
+        wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+        sudo apt-key add GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+        rm GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+        sudo add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"
+        sudo apt update
+        sudo apt install intel-oneapi-compiler-dpcpp-cpp intel-oneapi-mpi intel-oneapi-openmp intel-oneapi-mkl
+      working-directory: /tmp
+    - name: Configure
+      shell: bash
+      run: |
+        source /opt/intel/oneapi/setvars.sh
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_DPCPP=on -DCMAKE_CXX_COMPILER=dpcpp .
+    - name: Build
+      shell: bash
+      run: |
+        source /opt/intel/oneapi/setvars.sh
+        cmake --build . --config Release
+    - name: Run unit tests
+      shell: bash
+      run: |
+        source /opt/intel/oneapi/setvars.sh
         ctest -V

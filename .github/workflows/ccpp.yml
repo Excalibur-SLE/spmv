@@ -27,18 +27,20 @@ jobs:
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
         source /opt/intel/oneapi/compiler/latest/env/vars.sh
-        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release .
+        mkdir build
+        cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release .
     - name: Build
       shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
         source /opt/intel/oneapi/compiler/latest/env/vars.sh
-        cmake --build . --config Release
+        cmake --build build --config Release
     - name: Run unit tests
       shell: bash
       run: |
         source /opt/intel/oneapi/mkl/latest/env/vars.sh
         source /opt/intel/oneapi/compiler/latest/env/vars.sh
+        cd build
         ctest -V
 
   build_openmp:
@@ -64,14 +66,16 @@ jobs:
       shell: bash
       run: |
         source /opt/intel/oneapi/setvars.sh
-        cmake -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=icpx -DCMAKE_C_COMPILER=icx -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=on .
+        mkdir build_openmp
+        cmake -B build_openmp -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=icpx -DCMAKE_C_COMPILER=icx -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=on .
     - name: Build
       shell: bash
       run: |
         source /opt/intel/oneapi/setvars.sh
-        cmake --build . --config Release
+        cmake --build build_openmp --config Release
     - name: Run unit tests
       shell: bash
       run: |
         source /opt/intel/oneapi/setvars.sh
+        cd build_openmp
         ctest -V

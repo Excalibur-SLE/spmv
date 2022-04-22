@@ -103,7 +103,7 @@ jobs:
         rm GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
         sudo add-apt-repository "deb https://apt.repos.intel.com/oneapi all main"
         sudo apt update
-        sudo apt install intel-oneapi-compiler-dpcpp-cpp intel-oneapi-mpi intel-oneapi-openmp intel-oneapi-mkl-devel
+        sudo apt install intel-oneapi-compiler-dpcpp-cpp intel-oneapi-mpi intel-oneapi-mpi-devel intel-oneapi-openmp intel-oneapi-mkl-devel
       working-directory: /tmp
     - name: Configure
       shell: bash

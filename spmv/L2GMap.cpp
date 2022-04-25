@@ -2,15 +2,16 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "L2GMap.h"
+
+#include "device_executor.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <numeric>
 #include <set>
 #include <vector>
-
-#include "L2GMap.h"
-#include "device_executor.h"
 
 using namespace spmv;
 //-----------------------------------------------------------------------------

@@ -18,6 +18,13 @@ endif()
 if(ENABLE_MKL)
   set(_MKL 1)
 endif()
+list(GET BLAS_LIBRARIES 0 tmp)
+if(${tmp} MATCHES "mkl")
+  set(_BLAS_MKL 1)
+endif()
+if(${tmp} MATCHES "openblas")
+  set(_BLAS_OPENBLAS 1)
+endif()
 configure_file(${PROJECT_SOURCE_DIR}/spmv/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
 add_library(${LIB_NAME} SHARED

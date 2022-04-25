@@ -1,9 +1,10 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "cg_cuda.h"
+
 #include "L2GMap.h"
 #include "Matrix.h"
-#include "cg_cuda.h"
 #include "cuda_executor.h"
 #include "cuda_helper.h"
 

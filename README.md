@@ -16,7 +16,7 @@ The communication phase of the SpMV kernel is implemented with multiple MPI-base
 * CMake >= 3.18
 * C++ compiler with C++17 support
 * Eigen >= 3.3.9 (this dependency will be deprecated soon)
-* Intel MKL from the Intel oneAPI toolkit
+* A BLAS library
 * MPI implementation that supports the MPI-3.0 standard and is CUDA-aware (in case ENABLE_CUDA=on)
 
 ### Installation

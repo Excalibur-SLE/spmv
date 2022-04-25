@@ -2,12 +2,13 @@
 // SPDX-License-Identifier:    MIT
 
 #include "reference_executor.h"
-#include <cstring>
-#include <iostream>
-#include <typeinfo>
 
 #include "coo_matrix.h"
 #include "csr_matrix.h"
+
+#include <cstring>
+#include <iostream>
+#include <typeinfo>
 
 namespace spmv
 {

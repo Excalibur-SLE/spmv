@@ -2,13 +2,14 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "Matrix.h"
+
+#include "L2GMap.h"
+#include "csr_matrix.h"
+
 #include <numeric>
 #include <set>
 #include <unordered_set>
-
-#include "L2GMap.h"
-#include "Matrix.h"
-#include "csr_matrix.h"
 
 using namespace spmv;
 

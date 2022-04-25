@@ -2,14 +2,18 @@
 // SPDX-License-Identifier:    MIT
 
 #pragma once
-#include <CL/sycl.hpp>
-#include <complex>
+
+#include "config.h"
+#include "spmv_export.h"
 
 #ifdef _DPCPP
 #include "oneapi/mkl.hpp"
 #else
 #include "blas_sycl.h"
 #endif
+
+#include <CL/sycl.hpp>
+#include <complex>
 
 namespace sycl = cl::sycl;
 

@@ -4,14 +4,14 @@
 #pragma once
 
 #include "config.h"
+#include "spmv_export.h"
+
 // Needed for hipSYCL
 #ifdef __HIPSYCL__
 #undef SYCL_DEVICE_ONLY
 #endif
 #include <Eigen/Sparse>
 #include <memory>
-
-#include "spmv_export.h"
 
 namespace spmv
 {

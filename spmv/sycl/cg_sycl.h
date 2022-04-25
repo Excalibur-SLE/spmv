@@ -2,6 +2,10 @@
 // SPDX-License-Identifier:    MIT
 
 #pragma once
+
+#include "config.h"
+#include "spmv_export.h"
+
 #include <CL/sycl.hpp>
 #include <mpi.h>
 

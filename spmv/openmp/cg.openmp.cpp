@@ -2,16 +2,22 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "cg_openmp.h"
+
+#include "L2GMap.h"
+#include "Matrix.h"
+#include "omp_executor.h"
+
 #include <iomanip>
 #include <iostream>
 #include <memory>
 
+#ifdef _BLAS_MKL
 #include <mkl.h>
-
-#include "L2GMap.h"
-#include "Matrix.h"
-#include "cg_openmp.h"
-#include "omp_executor.h"
+#endif
+#ifdef _BLAS_OPENBLAS
+#include <cblas.h>
+#endif
 
 //-----------------------------------------------------------------------------
 int spmv::cg(MPI_Comm comm, spmv::OmpExecutor& exec,

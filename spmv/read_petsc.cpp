@@ -2,6 +2,12 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "read_petsc.h"
+
+#include "L2GMap.h"
+#include "Matrix.h"
+#include "device_executor.h"
+
 #include <Eigen/Sparse>
 #include <cassert>
 #include <fstream>
@@ -9,11 +15,6 @@
 #include <map>
 #include <memory>
 #include <vector>
-
-#include "L2GMap.h"
-#include "Matrix.h"
-#include "device_executor.h"
-#include "read_petsc.h"
 
 // Divide size into N ~equal chunks
 std::vector<std::int64_t> owner_ranges(int size, std::int64_t N)

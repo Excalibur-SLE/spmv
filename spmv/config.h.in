@@ -22,3 +22,11 @@
 #ifndef _CUDA
 #cmakedefine _CUDA
 #endif
+
+#ifndef _BLAS_MKL
+#cmakedefine _BLAS_MKL
+#endif
+
+#ifndef _BLAS_OPENBLAS
+#cmakedefine _BLAS_OPENBLAS
+#endif

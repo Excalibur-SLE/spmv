@@ -6,10 +6,15 @@
 #include <iostream>
 #include <memory>
 
-#include <mkl.h>
 #include <mpi.h>
 
 #include <spmv/spmv.h>
+#ifdef _BLAS_MKL
+#include <mkl.h>
+#endif
+#ifdef _BLAS_OPENBLAS
+#include <cblas.h>
+#endif
 
 void cg_main(int argc, char** argv)
 {

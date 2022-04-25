@@ -2,6 +2,7 @@
 // SPDX-License-Identifier:    MIT
 
 #include "csr_kernels.h"
+
 #include "omp_offload_executor.h"
 
 namespace spmv

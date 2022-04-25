@@ -2,11 +2,12 @@
 // SPDX-License-Identifier:    MIT
 
 #include "sycl_executor.h"
-#include <cstring>
-#include <typeinfo>
 
 #include "coo_matrix.h"
 #include "csr_matrix.h"
+
+#include <cstring>
+#include <typeinfo>
 
 namespace spmv
 {

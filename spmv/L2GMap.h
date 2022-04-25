@@ -2,18 +2,18 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#pragma once
+
 #include "config.h"
 #include "spmv_export.h"
+
+#include "mpi_utils.h"
 
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <mpi.h>
 #include <vector>
-
-#include "mpi_utils.h"
-
-#pragma once
 
 namespace spmv
 {

@@ -1,9 +1,10 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "cg_sycl.h"
+
 #include "L2GMap.h"
 #include "Matrix.h"
-#include "cg_sycl.h"
 #include "sycl_executor.h"
 
 #ifdef _DPCPP

@@ -52,22 +52,15 @@ option(ENABLE_HIPSYCL "Use hipSYCL for shared-memory parallelization" OFF)
 option(ENABLE_CUDA "Use CUDA (cuBLAS, cuSPARSE) for GPU offloading" OFF)
 option(ENABLE_MKL "Use Intel MKL to accelerate SpMV kernels whenever possible" OFF)
 
-# For OpenMP build we need to use the Intel toolchain, as Intel MKL
-# is linked with the libiomp5 library, whose use we cannot enforce
-# with other linkers.
-if (ENABLE_OPENMP)
-  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM" OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-    message(FATAL_ERROR "Please use an Intel C++ compiler for the MPI+OpenMP build")
-  endif()
-endif()
-
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(MPI REQUIRED COMPONENTS C CXX)
 
-if (ENABLE_OPENMP)
-  set(BLA_VENDOR Intel10_64lp)
-else()
-  set(BLA_VENDOR Intel10_64lp_seq)
+if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM" OR CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+  if(ENABLE_OPENMP)
+    set(BLA_VENDOR Intel10_64lp)
+  else()
+    set(BLA_VENDOR Intel10_64lp_seq)
+  endif()
 endif()
 find_package(BLAS REQUIRED)
 

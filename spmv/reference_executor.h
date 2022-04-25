@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include "config.h"
+#include "spmv_export.h"
+
 #include "coo_kernels.h"
 #include "csr_kernels.h"
 #include "device_executor.h"

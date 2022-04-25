@@ -2,7 +2,9 @@
 // SPDX-License-Identifier:    MIT
 
 #include "csr_kernels.h"
+
 #include "omp_executor.h"
+
 #include <cassert>
 #include <map>
 #include <set>

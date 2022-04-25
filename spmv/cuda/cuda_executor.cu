@@ -1,9 +1,10 @@
 // Copyright (C) 2022 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
+#include "cuda_executor.h"
+
 #include "coo_matrix.h"
 #include "csr_matrix.h"
-#include "cuda_executor.h"
 #include "reference_executor.h"
 
 namespace spmv

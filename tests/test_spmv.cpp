@@ -1,14 +1,19 @@
 // Copyright (C) 2021 Athena Elafrou (ae488@cam.ac.uk)
 // SPDX-License-Identifier:    MIT
 
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
 #include <iostream>
 #include <limits>
-#include <mpi.h>
 #include <set>
 
+#include <mpi.h>
+
 #include <spmv.h>
+#ifdef _BLAS_MKL
+#include <mkl.h>
+#endif
+#ifdef _BLAS_OPENBLAS
+#include <cblas.h>
+#endif
 
 // Compare double precision floating-point numbers (taken from the "Art of
 // Computer Programming")
@@ -42,6 +47,10 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   int mpi_size;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+
+  // Define device executor
+  std::shared_ptr<spmv::DeviceExecutor> exec
+      = spmv::ReferenceExecutor::create();
 
   // Define a global N x N matrix
   const int N = 5;
@@ -113,10 +122,6 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   int row_offset = rowptr[row_start];
   for (int i = 0; i < nrows_local + 1; i++)
     rowptr_local[i] -= row_offset;
-
-  // Define device executor
-  std::shared_ptr<spmv::DeviceExecutor> exec
-      = spmv::ReferenceExecutor::create();
 
   // Create matrix
   spmv::Matrix<double>* A = spmv::Matrix<double>::create_matrix(

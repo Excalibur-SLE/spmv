@@ -3,10 +3,11 @@
 
 #pragma once
 
+#include "config.h"
+#include "spmv_export.h"
+
 #include <cstdlib>
 #include <memory>
-
-#include "spmv_export.h"
 
 namespace spmv
 {

@@ -3,8 +3,12 @@
 
 #pragma once
 
+#include "config.h"
+#include "spmv_export.h"
+
 #include "cuda_helper.h"
 #include "device_executor.h"
+
 #include <memory>
 
 namespace spmv

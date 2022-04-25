@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include "config.h"
+#include "spmv_export.h"
+
 #include <cstdlib>
 
 namespace spmv

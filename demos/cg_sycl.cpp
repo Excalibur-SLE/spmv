@@ -48,7 +48,7 @@ int cg_main(int argc, char** argv)
                                                           exec, symmetric, cm);
 
   // Read vector
-  double* b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, exec, argv2);
+  double* b = spmv::read_petsc_binary_vector(MPI_COMM_WORLD, exec.get(), argv2);
   double* x = exec->alloc<double>(A.rows());
 
   // Get local and global sizes
@@ -130,7 +130,13 @@ int cg_main(int argc, char** argv)
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-  MPI_Init(&argc, &argv);
+  int provided;
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+  if (provided < MPI_THREAD_FUNNELED) {
+    std::cout << "The threading support level is lesser than required"
+              << std::endl;
+    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+  }
 
   cg_main(argc, argv);
 

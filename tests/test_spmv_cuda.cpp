@@ -135,6 +135,7 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
   double *d_y_local = nullptr, *d_x_local = nullptr;
   d_y_local = exec->alloc<double>(nrows_local);
+  exec->memset<double>(d_y_local, 0, nrows_local);
   d_x_local = exec->alloc<double>(l2g->local_size() + l2g->num_ghosts());
   exec->copy_from<double>(d_x_local, exec->get_host(), x.data() + row_start,
                           ncols_local);

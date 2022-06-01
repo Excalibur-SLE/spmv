@@ -132,6 +132,7 @@ static bool test_spmv(bool symmetric, spmv::CommunicationModel cm)
   std::shared_ptr<const spmv::L2GMap> l2g = A->col_map();
   double *y_local = nullptr, *x_local = nullptr;
   y_local = exec->alloc<double>(nrows_local);
+  exec->memset<double>(y_local, 0, nrows_local);
   x_local = exec->alloc<double>(l2g->local_size() + l2g->num_ghosts());
   exec->copy_from<double>(x_local, exec->get_host(), x.data() + row_start,
                           ncols_local);
@@ -211,16 +212,16 @@ int main(int argc, char** argv)
 
   if (mpi_rank == 0)
     std::cout
-        << "Running vanilla SpMV on CPU with one-sided active communication..."
+        << "Running vanilla SpMV on CPU with one-sided active communication... "
         << std::endl;
   cm = spmv::CommunicationModel::onesided_put_active;
   ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);
 
   if (mpi_rank == 0)
-    std::cout
-        << "Running vanilla SpMV on CPU with one-sided passive communication..."
-        << std::endl;
+    std::cout << "Running vanilla SpMV on CPU with one-sided passive "
+                 "communication... "
+              << std::endl;
   cm = spmv::CommunicationModel::onesided_put_passive;
   ret &= test_spmv(symmetric, cm);
   MPI_Barrier(MPI_COMM_WORLD);

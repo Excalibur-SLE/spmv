@@ -96,13 +96,13 @@ int spmv::cg(MPI_Comm comm, SyclExecutor& exec, const spmv::Matrix<double>& A,
     if (rnorm_new / rnorm0 < rtol)
       break;
 
-    // Update p.
+    // Update p
     // p = r + beta*p
 #ifdef _DPCPP
     oneapi::mkl::blas::row_major::scal(*q, M, beta, p, 1).wait();
     oneapi::mkl::blas::row_major::axpy(*q, M, 1, r, 1, p, 1).wait();
 #else
-    axpy(M, beta, p, r, p, *q).wait();
+    axpy(M, beta, p, r, *q).wait();
 #endif
   }
 

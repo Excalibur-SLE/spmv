@@ -228,8 +228,8 @@ spmv::read_petsc_binary_matrix(std::string filename, MPI_Comm comm,
 }
 //-----------------------------------------------------------------------------
 double* spmv::read_petsc_binary_vector(MPI_Comm comm,
-                                       std::shared_ptr<DeviceExecutor> exec,
-                                       std::string filename)
+                                       const DeviceExecutor* exec,
+                                       const std::string filename)
 {
   double* vec_host = nullptr;
   double* vec_dev = nullptr;

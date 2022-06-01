@@ -3,14 +3,18 @@
 
 #pragma once
 
+#include "config.h"
+#include "spmv_export.h"
+
 #include "csr_kernels.h"
 #include "device_executor.h"
+
 #include <openacc.h>
 
 namespace spmv
 {
 
-class SPMV_EXPORT OpenaccExecutor : public DeviceExecutor
+class SPMV_EXPORT OpenaccExecutor final : public DeviceExecutor
 {
 public:
   ~OpenaccExecutor();

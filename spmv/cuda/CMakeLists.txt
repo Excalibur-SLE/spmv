@@ -1,4 +1,5 @@
 target_sources(${LIB_NAME} PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/cuda_executor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cuda_executor.cu
   ${CMAKE_CURRENT_SOURCE_DIR}/coo_kernels.cuda.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/csr_kernels.cuda.cu
@@ -35,15 +36,15 @@ if(CMAKE_VERSION VERSION_LESS 3.18)
 endif()
 
 target_include_directories(${LIB_NAME} PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
-if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
   target_link_libraries(${LIB_NAME}
     PUBLIC CUDA::cudart CUDA::cublas CUDA::cusparse
     )
 else()
   target_link_libraries(${LIB_NAME}
-    PUBLIC ${CUDART_LIB}
-    PRIVATE ${CUBLAS_LIB} ${CUSPARSE_LIB}
+    PUBLIC CUDA::cudart ${CUBLAS_LIB} ${CUSPARSE_LIB}
     )
+  target_include_directories(${LIB_NAME} PUBLIC "${CUDAToolkit_ROOT}/../math_libs/include")
 endif()
 
 # Install the header files manually, since CMake does not respect subdirectories

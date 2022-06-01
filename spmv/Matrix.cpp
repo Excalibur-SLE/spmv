@@ -5,6 +5,9 @@
 #include "Matrix.h"
 
 #include "L2GMap.h"
+#include "device_executor.h"
+
+#include "coo_matrix.h"
 #include "csr_matrix.h"
 
 #include <numeric>
@@ -25,7 +28,7 @@ Matrix<T>::Matrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
   if (col_map->overlapping())
     throw runtime_error("Ovelapping not supported in this format!");
 
-  _mat_local.reset(new CSRMatrix<T>(mat, exec));
+  _mat_local.reset(new CSRMatrix<T>(exec, &mat));
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -41,8 +44,8 @@ Matrix<T>::Matrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat_local,
   if (!col_map->overlapping())
     throw runtime_error("Ovelapping not enabled in column mapping!");
 
-  _mat_local.reset(new CSRMatrix<T>(mat_local, exec));
-  _mat_remote.reset(new CSRMatrix<T>(mat_remote, exec));
+  _mat_local.reset(new CSRMatrix<T>(exec, &mat_local));
+  _mat_remote.reset(new CSRMatrix<T>(exec, &mat_remote));
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -55,8 +58,17 @@ Matrix<T>::Matrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat_local,
     : _exec(exec), _col_map(col_map), _row_map(row_map), _nnz(nnz_full),
       _symmetric(true)
 {
-  _mat_local.reset(new CSRMatrix<T>(mat_local, mat_diagonal, _symmetric, exec));
-  _mat_remote.reset(new CSRMatrix<T>(mat_remote, exec));
+  // Heuristic for choosing format
+  if (exec->get_device_type() == DeviceType::gpu) {
+    _mat_local.reset(
+        new CSRMatrix<T>(exec, &mat_local, &mat_diagonal, _symmetric));
+  } else if (exec->get_device_type() == DeviceType::cpu) {
+    _mat_local.reset(
+        new CSRMatrix<T>(exec, &mat_local, &mat_diagonal, _symmetric));
+  } else {
+    throw runtime_error("Device type not set!");
+  }
+  _mat_remote.reset(new CSRMatrix<T>(exec, &mat_remote));
 }
 //-----------------------------------------------------------------------------
 template <typename T>
@@ -499,8 +511,8 @@ void Matrix<T>::spmv_overlap(T* x, T* y) const
 }
 //-----------------------------------------------------------------------------
 template <typename T>
-Eigen::Matrix<T, Eigen::Dynamic, 1>
-Matrix<T>::spmv_overlap(Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const
+Eigen::Matrix<T, Eigen::Dynamic, 1> Matrix<T>::spmv_overlap(
+    Eigen::Ref<Eigen::Matrix<T, Eigen::Dynamic, 1>> x) const
 {
   Eigen::Matrix<T, Eigen::Dynamic, 1> y(_mat_local->rows());
   spmv_overlap(x.data(), y.data());

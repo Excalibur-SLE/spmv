@@ -16,22 +16,17 @@ namespace spmv
 class DeviceExecutor;
 
 template <typename T>
-class SPMV_EXPORT CSRMatrix : public SubMatrix<T>
+class SPMV_EXPORT CSRMatrix final : public SubMatrix<T>
 {
 public:
-  CSRMatrix() = delete;
-  CSRMatrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
-            std::shared_ptr<DeviceExecutor> exec);
-  CSRMatrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
-            const Eigen::Matrix<T, Eigen::Dynamic, 1>& diagonal, bool symmetric,
-            std::shared_ptr<DeviceExecutor> exec);
-  CSRMatrix(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
-            const int32_t* rowptr, const int32_t* colind, const T* values,
-            std::shared_ptr<DeviceExecutor> exec);
-  CSRMatrix(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
-            const int32_t* rowptr, const int32_t* colind, const T* values,
-            const T* diagonal, bool symmetric,
-            std::shared_ptr<DeviceExecutor> exec);
+  CSRMatrix(std::shared_ptr<DeviceExecutor> exec,
+            const Eigen::SparseMatrix<T, Eigen::RowMajor>* mat,
+            const Eigen::Matrix<T, Eigen::Dynamic, 1>* diagonal = nullptr,
+            bool symmetric = false);
+  CSRMatrix(std::shared_ptr<DeviceExecutor> exec, int32_t num_rows,
+            int32_t num_cols, int64_t num_non_zeros, const int32_t* rowptr,
+            const int32_t* colind, const T* values, const T* diagonal = nullptr,
+            bool symmetric = false);
   ~CSRMatrix();
 
   size_t format_size() const override;

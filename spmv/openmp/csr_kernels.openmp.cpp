@@ -15,18 +15,18 @@ namespace spmv
 
 struct aux_data_t {
   int32_t* _row_split = nullptr;
-  int* _cnfl_pos = nullptr;
+  int32_t* _cnfl_pos = nullptr;
   short* _cnfl_src = nullptr;
-  int* _cnfl_start = nullptr;
-  int* _cnfl_end = nullptr;
-  int _ncnfls = 0;
+  int32_t* _cnfl_start = nullptr;
+  int32_t* _cnfl_end = nullptr;
+  int32_t _ncnfls = 0;
   char* _buffer = nullptr;
 };
 
 template <typename T>
-void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
-                      int32_t* rowptr, int32_t* colind, T* values,
-                      bool symmetric, const OmpExecutor& exec)
+void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
+                      const int32_t* rowptr, const int32_t* colind,
+                      const T* values, bool symmetric, const OmpExecutor& exec)
 {
   _symmetric = symmetric;
 
@@ -35,7 +35,7 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     //  _aux_data = exec.alloc<aux_data_t>(1);
     _aux_data = new aux_data_t;
     aux_data_t* aux_data = (aux_data_t*)_aux_data;
-    int num_threads = exec.get_num_cus();
+    short num_threads = exec.get_num_cus();
 
     aux_data->_row_split = exec.alloc<int32_t>(num_threads + 1);
     int32_t* row_split = aux_data->_row_split;
@@ -44,8 +44,8 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
       row_split[0] = 0;
       row_split[1] = num_rows;
       if (symmetric) {
-        aux_data->_cnfl_start = exec.alloc<int>(num_threads);
-        aux_data->_cnfl_end = exec.alloc<int>(num_threads);
+        aux_data->_cnfl_start = exec.alloc<int32_t>(num_threads);
+        aux_data->_cnfl_end = exec.alloc<int32_t>(num_threads);
         aux_data->_cnfl_start[0] = 0;
         aux_data->_cnfl_end[0] = 0;
       }
@@ -53,11 +53,11 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     }
 
     // Compute the matrix splits.
-    int nnz_per_split = (num_non_zeros + num_threads - 1) / num_threads;
-    int curr_nnz = 0;
-    int row_start = 0;
-    int split_cnt = 0;
-    int i;
+    int32_t nnz_per_split = (num_non_zeros + num_threads - 1) / num_threads;
+    int32_t curr_nnz = 0;
+    int32_t row_start = 0;
+    int32_t split_cnt = 0;
+    int32_t i;
 
     row_split[0] = row_start;
     for (i = 0; i < num_rows; i++) {
@@ -82,7 +82,7 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     }
 
     // If there are remaining threads create empty partitions
-    for (int i = split_cnt + 1; i <= num_threads; i++) {
+    for (int32_t i = split_cnt + 1; i <= num_threads; i++) {
       row_split[i] = num_rows;
     }
 
@@ -94,13 +94,13 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
       aux_data->_buffer = (char*)exec.alloc<T>(num_threads * num_rows);
 
       // Build conflict map for local block
-      std::map<int, std::unordered_set<int>> row_conflicts;
-      std::set<int> thread_conflicts;
-      int ncnfls = 0;
-      for (int tid = 1; tid < num_threads; ++tid) {
-        for (int i = row_split[tid]; i < row_split[tid + 1]; ++i) {
-          for (int j = rowptr[i]; j < rowptr[i + 1]; ++j) {
-            int target_row = colind[j];
+      std::map<int32_t, std::unordered_set<int32_t>> row_conflicts;
+      std::set<int32_t> thread_conflicts;
+      int32_t ncnfls = 0;
+      for (short tid = 1; tid < num_threads; ++tid) {
+        for (int32_t i = row_split[tid]; i < row_split[tid + 1]; ++i) {
+          for (int32_t j = rowptr[i]; j < rowptr[i + 1]; ++j) {
+            int32_t target_row = colind[j];
             if (target_row < row_split[tid]) {
               thread_conflicts.insert(target_row);
               row_conflicts[target_row].insert(tid);
@@ -112,11 +112,11 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
       }
 
       // Finalise conflict map data structure
-      aux_data->_cnfl_pos = exec.alloc<int>(ncnfls);
+      aux_data->_cnfl_pos = exec.alloc<int32_t>(ncnfls);
       aux_data->_cnfl_src = exec.alloc<short>(ncnfls);
       int32_t* cnfl_pos = aux_data->_cnfl_pos;
       short* cnfl_src = aux_data->_cnfl_src;
-      int cnt = 0;
+      int32_t cnt = 0;
       for (auto& conflict : row_conflicts) {
         for (auto tid : conflict.second) {
           cnfl_pos[cnt] = conflict.first;
@@ -128,14 +128,14 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
 
       // Split reduction work among threads so that conflicts to the same row
       // are assigned to the same thread
-      aux_data->_cnfl_start = exec.alloc<int>(num_threads);
-      aux_data->_cnfl_end = exec.alloc<int>(num_threads);
+      aux_data->_cnfl_start = exec.alloc<int32_t>(num_threads);
+      aux_data->_cnfl_end = exec.alloc<int32_t>(num_threads);
       int32_t* cnfl_start = aux_data->_cnfl_start;
       int32_t* cnfl_end = aux_data->_cnfl_end;
-      int total_count = ncnfls;
-      int tid = 0;
-      int limit = total_count / num_threads;
-      int tmp_count = 0, run_cnt = 0;
+      int32_t total_count = ncnfls;
+      short tid = 0;
+      int32_t limit = total_count / num_threads;
+      int32_t tmp_count = 0, run_cnt = 0;
       for (auto& elem : row_conflicts) {
         run_cnt += elem.second.size();
         if (tmp_count < limit) {
@@ -154,11 +154,11 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
         }
       }
 
-      for (int i = tid; i < num_threads; i++)
+      for (short i = tid; i < num_threads; i++)
         cnfl_end[i] = ncnfls - (run_cnt - tmp_count);
 
       int start = 0;
-      for (int tid = 0; tid < num_threads; tid++) {
+      for (short tid = 0; tid < num_threads; tid++) {
         cnfl_start[tid] = start;
         cnfl_end[tid] += start;
         start = cnfl_end[tid];
@@ -170,7 +170,7 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
 }
 
 template <typename T>
-void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
+void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
                      const int32_t* rowptr, const int32_t* colind,
                      const T* values, const T* diagonal, T alpha,
                      T* __restrict__ in, T beta, T* __restrict__ out,
@@ -187,12 +187,12 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     // Assumes out is initialized to zero if beta is zero
     #pragma omp parallel
     {
-      const int tid = omp_get_thread_num();
+      const short tid = omp_get_thread_num();
       const int32_t row_offset = row_split[tid];
       T* buffer = (T*)aux_data->_buffer;
 
       // Local vectors phase
-      for (int i = row_split[tid]; i < row_split[tid + 1]; ++i) {
+      for (int32_t i = row_split[tid]; i < row_split[tid + 1]; ++i) {
         T sum = diagonal[i] * in[i];
 
         if (rowptr != nullptr) {
@@ -212,9 +212,9 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
       #pragma omp barrier
 
       // Reduction of conflicts phase
-      for (int i = cnfl_start[tid]; i < cnfl_end[tid]; ++i) {
-        int vid = cnfl_src[i];
-        int pos = cnfl_pos[i];
+      for (int32_t i = cnfl_start[tid]; i < cnfl_end[tid]; ++i) {
+        short vid = cnfl_src[i];
+        int32_t pos = cnfl_pos[i];
         out[pos] += alpha * buffer[vid * num_rows + pos];
         buffer[vid * num_rows + pos] = 0.0;
       }
@@ -228,7 +228,7 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     {
       aux_data_t* aux_data = static_cast<aux_data_t*>(_aux_data);
       int32_t* row_split = aux_data->_row_split;
-      const int tid = omp_get_thread_num();
+      const short tid = omp_get_thread_num();
 
       for (int32_t i = row_split[tid]; i < row_split[tid + 1]; ++i) {
         T sum = 0.0;

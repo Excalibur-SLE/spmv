@@ -58,18 +58,62 @@ void ReferenceExecutor::_copy_from(void* dst_ptr,
   }
 }
 
+void ReferenceExecutor::spmv_init(CSRSpMV<float>& op,
+                                  const CSRMatrix<float>& mat) const
+{
+  op.init(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
+          mat.values(), mat.symmetric(), *this);
+}
+
+void ReferenceExecutor::spmv_init(CSRSpMV<double>& op,
+                                  const CSRMatrix<double>& mat) const
+{
+  op.init(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
+          mat.values(), mat.symmetric(), *this);
+}
+
+void ReferenceExecutor::spmv_run(const CSRSpMV<float>& op,
+                                 const CSRMatrix<float>& mat, float alpha,
+                                 float* __restrict__ in, float beta,
+                                 float* __restrict__ out) const
+{
+  op.run(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
+         mat.values(), mat.diagonal(), alpha, in, beta, out, *this);
+}
+
+void ReferenceExecutor::spmv_run(const CSRSpMV<double>& op,
+                                 const CSRMatrix<double>& mat, double alpha,
+                                 double* __restrict__ in, double beta,
+                                 double* __restrict__ out) const
+{
+  op.run(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
+         mat.values(), mat.diagonal(), alpha, in, beta, out, *this);
+}
+
+void ReferenceExecutor::spmv_finalize(CSRSpMV<float>& op) const
+{
+  op.finalize(*this);
+}
+
+void ReferenceExecutor::spmv_finalize(CSRSpMV<double>& op) const
+{
+  op.finalize(*this);
+}
+
 void ReferenceExecutor::_copy_to(void* dst_ptr, const DeviceExecutor& dst_exec,
                                  const void* src_ptr, size_t num_bytes) const
 {
 }
 
-void ReferenceExecutor::spmv_init(COOSpMV<float>& op, COOMatrix<float>& mat)
+void ReferenceExecutor::spmv_init(COOSpMV<float>& op,
+                                  const COOMatrix<float>& mat) const
 {
   op.init(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowind(), mat.colind(),
           mat.values(), *this);
 }
 
-void ReferenceExecutor::spmv_init(COOSpMV<double>& op, COOMatrix<double>& mat)
+void ReferenceExecutor::spmv_init(COOSpMV<double>& op,
+                                  const COOMatrix<double>& mat) const
 {
   op.init(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowind(), mat.colind(),
           mat.values(), *this);
@@ -93,54 +137,12 @@ void ReferenceExecutor::spmv_run(const COOSpMV<double>& op,
          mat.values(), alpha, in, beta, out, *this);
 }
 
-void ReferenceExecutor::spmv_finalize(const COOSpMV<float>& op) const
+void ReferenceExecutor::spmv_finalize(COOSpMV<float>& op) const
 {
   op.finalize(*this);
 }
 
-void ReferenceExecutor::spmv_finalize(const COOSpMV<double>& op) const
-{
-  op.finalize(*this);
-}
-
-void ReferenceExecutor::spmv_init(CSRSpMV<float>& op, CSRMatrix<float>& mat,
-                                  bool symmetric)
-{
-  op.init(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
-          mat.values(), symmetric, *this);
-}
-
-void ReferenceExecutor::spmv_init(CSRSpMV<double>& op, CSRMatrix<double>& mat,
-                                  bool symmetric)
-{
-  op.init(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
-          mat.values(), symmetric, *this);
-}
-
-void ReferenceExecutor::spmv_run(const CSRSpMV<float>& op,
-                                 const CSRMatrix<float>& mat, float alpha,
-                                 float* __restrict__ in, float beta,
-                                 float* __restrict__ out) const
-{
-  op.run(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
-         mat.values(), mat.diagonal(), alpha, in, beta, out, *this);
-}
-
-void ReferenceExecutor::spmv_run(const CSRSpMV<double>& op,
-                                 const CSRMatrix<double>& mat, double alpha,
-                                 double* __restrict__ in, double beta,
-                                 double* __restrict__ out) const
-{
-  op.run(mat.rows(), mat.cols(), mat.non_zeros(), mat.rowptr(), mat.colind(),
-         mat.values(), mat.diagonal(), alpha, in, beta, out, *this);
-}
-
-void ReferenceExecutor::spmv_finalize(const CSRSpMV<float>& op) const
-{
-  op.finalize(*this);
-}
-
-void ReferenceExecutor::spmv_finalize(const CSRSpMV<double>& op) const
+void ReferenceExecutor::spmv_finalize(COOSpMV<double>& op) const
 {
   op.finalize(*this);
 }

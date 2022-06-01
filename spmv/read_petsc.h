@@ -43,7 +43,6 @@ Matrix<double> read_petsc_binary_matrix(
 /// @param filename Filename
 /// @return Vector of values
 SPMV_EXPORT
-double* read_petsc_binary_vector(MPI_Comm comm,
-                                 std::shared_ptr<DeviceExecutor> exec,
-                                 std::string filename);
+double* read_petsc_binary_vector(MPI_Comm comm, const DeviceExecutor* exec,
+                                 const std::string filename);
 } // namespace spmv

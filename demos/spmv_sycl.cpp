@@ -140,7 +140,6 @@ void spmv_main(int argc, char** argv)
 //-----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-#ifdef _OPENMP
   int provided;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
   if (provided < MPI_THREAD_FUNNELED) {
@@ -148,9 +147,6 @@ int main(int argc, char** argv)
               << std::endl;
     MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
   }
-#else
-  MPI_Init(&argc, &argv);
-#endif
 
   spmv_main(argc, argv);
 

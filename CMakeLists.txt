@@ -1,13 +1,19 @@
-# Require CMake 3.13
+# Require CMake 3.17
 # 3.8 for CUDA language
 # 3.12 for add_compile_definitions
 # 3.13 for modifying targets in subdirectories using add_subdirectory()
 # 3.16 for OpenACC imported target
+# 3.17 for FindCUDAToolkit
 # 3.18 for BLAS imported target
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.17)
 
 # Note that the default settings for RelWithDebInfo will disable assertions
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE
+    STRING "Choose the type of build (Debug Release RelWithDebInfo MinSizeRel)."
+    FORCE
+    )
+endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -82,11 +88,11 @@ if(ENABLE_OPENACC)
 endif()
 
 if(ENABLE_DPCPP)
-  find_package(MKL CONFIG REQUIRED)
   # Check compiler is set to dpcpp
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
     message(FATAL_ERROR "Please set dpcpp as the C++ compiler")
   endif()
+  find_package(MKL CONFIG REQUIRED)
   add_compile_options(-fsycl -sycl-std=2020 -fsycl-unnamed-lambda)
   # Enable AOT compilation
   # x86_64 CPUs
@@ -112,21 +118,20 @@ if(ENABLE_CUDA)
   enable_language(CUDA)
   set(CMAKE_CUDA_STANDARD 17)
   set(CMAKE_CUDA_STANDARD_REQUIRED TRUE)
-  if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.17)
-    find_package(CUDAToolkit REQUIRED)
-  else()
-    # Find required CUDA libraries explicitly
-    find_library(CUDART_LIB cudart PATHS ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
-    if(CUDART_LIB STREQUAL CUDART_LIB-NOTFOUND)
-      message(FATAL_ERROR "NVIDIA cudart library not found")
-    endif()
-    find_library(CUBLAS_LIB cublas PATHS ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
-    if(CUBLAS_LIB STREQUAL CUBLAS_LIB-NOTFOUND)
-      message(FATAL_ERROR "NVIDIA cublas library not found")
-    endif()
-    find_library(CUSPARSE_LIB cusparse PATHS ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
-    if(CUSPARSE_LIB STREQUAL CUSPARSE_LIB-NOTFOUND)
-      message(FATAL_ERROR "NVIDIA cusparse library not found")
+  find_package(CUDAToolkit REQUIRED)
+  # Support NVHPC toolkit
+  # NVHPC id >= 3.20
+  if(CMAKE_CXX_COMPILER_ID MATCHES "NVHPC" OR CMAKE_CXX_COMPILER_ID MATCHES "PGI")
+    if(CMAKE_VERSION VERSION_LESS 3.22)
+      # Find required CUDA math libraries explicitly
+      find_library(CUBLAS_LIB NAMES cublas HINTS "${CUDAToolkit_ROOT}/../math_libs/lib64")
+      if(CUBLAS_LIB STREQUAL CUBLAS_LIB-NOTFOUND)
+	message(FATAL_ERROR "NVIDIA cublas library not found")
+      endif()
+      find_library(CUSPARSE_LIB cusparse PATHS "${CUDAToolkit_ROOT}/../math_libs/lib64")
+      if(CUSPARSE_LIB STREQUAL CUSPARSE_LIB-NOTFOUND)
+	message(FATAL_ERROR "NVIDIA cusparse library not found")
+      endif()
     endif()
   endif()
 endif()

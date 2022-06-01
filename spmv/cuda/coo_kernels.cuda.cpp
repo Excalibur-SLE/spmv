@@ -19,22 +19,22 @@ struct static_false : std::false_type {
 };
 
 template <typename T>
-void COOSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
-                      int32_t* rowind, int32_t* colind, T* values,
-                      const CudaExecutor& exec)
+void COOSpMV<T>::init(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
+                      const int32_t* rowind, const int32_t* colind,
+                      const T* values, const CudaExecutor& exec)
 {
   _aux_data = malloc(sizeof(cusparse_data_t*));
   cusparse_data_t* cusparse_data = (cusparse_data_t*)_aux_data;
   if constexpr (std::is_same<T, float>()) {
-    CHECK_CUSPARSE(cusparseCreateCoo(&(cusparse_data->_mat), num_rows, num_cols,
-                                     num_non_zeros, rowind, colind, values,
-                                     CUSPARSE_INDEX_32I,
-                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+    CHECK_CUSPARSE(cusparseCreateCoo(
+        &(cusparse_data->_mat), num_rows, num_cols, num_non_zeros,
+        (void*)rowind, (void*)colind, (void*)values, CUSPARSE_INDEX_32I,
+        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
   } else if constexpr (std::is_same<T, double>()) {
-    CHECK_CUSPARSE(cusparseCreateCoo(&(cusparse_data->_mat), num_rows, num_cols,
-                                     num_non_zeros, rowind, colind, values,
-                                     CUSPARSE_INDEX_32I,
-                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+    CHECK_CUSPARSE(cusparseCreateCoo(
+        &(cusparse_data->_mat), num_rows, num_cols, num_non_zeros,
+        (void*)rowind, (void*)colind, (void*)values, CUSPARSE_INDEX_32I,
+        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
   } else {
     static_assert(static_false<T>::value);
   }
@@ -46,7 +46,7 @@ void COOSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
 }
 
 template <typename T>
-void COOSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
+void COOSpMV<T>::run(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
                      const int32_t* rowind, const int32_t* colind,
                      const T* values, T alpha, T* __restrict__ in, T beta,
                      T* __restrict__ out, const CudaExecutor& exec) const

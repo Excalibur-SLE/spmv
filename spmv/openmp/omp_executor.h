@@ -14,7 +14,7 @@
 namespace spmv
 {
 
-class SPMV_EXPORT OmpExecutor : public DeviceExecutor
+class SPMV_EXPORT OmpExecutor final : public DeviceExecutor
 {
 public:
   ~OmpExecutor(){};
@@ -34,31 +34,19 @@ public:
   int get_num_devices() const override;
   int get_num_cus() const override;
 
-  // COO format
-  void spmv_init(COOSpMV<float>& op, COOMatrix<float>& mat) override;
-  void spmv_init(COOSpMV<double>& op, COOMatrix<double>& mat) override;
-  void spmv_run(const COOSpMV<float>& op, const COOMatrix<float>& mat,
-                float alpha, float* __restrict__ in, float beta,
-                float* __restrict__ out) const override;
-  void spmv_run(const COOSpMV<double>& op, const COOMatrix<double>& mat,
-                double alpha, double* __restrict__ in, double beta,
-                double* __restrict__ out) const override;
-  void spmv_finalize(const COOSpMV<float>& op) const override;
-  void spmv_finalize(const COOSpMV<double>& op) const override;
-
   // CSR format
-  void spmv_init(CSRSpMV<float>& op, CSRMatrix<float>& mat,
-                 bool symmetric) override;
-  void spmv_init(CSRSpMV<double>& op, CSRMatrix<double>& mat,
-                 bool symmetric) override;
+  void spmv_init(CSRSpMV<float>& op,
+                 const CSRMatrix<float>& mat) const override;
+  void spmv_init(CSRSpMV<double>& op,
+                 const CSRMatrix<double>& mat) const override;
   void spmv_run(const CSRSpMV<float>& op, const CSRMatrix<float>& mat,
                 float alpha, float* __restrict__ in, float beta,
                 float* __restrict__ out) const override;
   void spmv_run(const CSRSpMV<double>& op, const CSRMatrix<double>& mat,
                 double alpha, double* __restrict__ in, double beta,
                 double* __restrict__ out) const override;
-  void spmv_finalize(const CSRSpMV<float>& op) const override;
-  void spmv_finalize(const CSRSpMV<double>& op) const override;
+  void spmv_finalize(CSRSpMV<float>& op) const override;
+  void spmv_finalize(CSRSpMV<double>& op) const override;
 
   // Gather ghosts
   void gather_ghosts_run(int num_indices, const int32_t* indices,
@@ -80,7 +68,7 @@ protected:
                 const void* src_ptr, size_t num_bytes) const override;
 
 private:
-  OmpExecutor() = default;
+  OmpExecutor() { _dev_info.type = DeviceType::cpu; }
 };
 
 } // namespace spmv

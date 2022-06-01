@@ -484,16 +484,18 @@ L2GMap::~L2GMap()
   if (_cm == CommunicationModel::collective_blocking
       || _cm == CommunicationModel::collective_nonblocking)
     CHECK_MPI(MPI_Comm_free(&_neighbour_comm));
+
   if (_cm == CommunicationModel::p2p_blocking
-      || _cm == CommunicationModel::p2p_nonblocking)
+      || _cm == CommunicationModel::p2p_nonblocking) {
     delete[] _req;
-  if (_cm == CommunicationModel::collective_nonblocking)
+  } else if (_cm == CommunicationModel::collective_nonblocking) {
     delete _req;
+  }
+
   // FIXME: more cases
   if (_cm == CommunicationModel::p2p_nonblocking
-      || _cm == CommunicationModel::collective_nonblocking) {
+      || _cm == CommunicationModel::collective_nonblocking)
     _exec->free(_send_buf);
-  }
 }
 //-----------------------------------------------------------------------------
 template <typename T>

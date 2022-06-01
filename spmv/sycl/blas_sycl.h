@@ -20,7 +20,7 @@ namespace sycl = cl::sycl;
 namespace spmv
 {
 
-/// @brief Compute vector r = alpha*x + y
+/// @brief Compute vector y = alpha*x + y
 ///
 /// Input
 /// @param N Length of vectors

@@ -68,7 +68,7 @@ jobs:
         cd build_mkl
         ctest -V
 
-  build_openblas_openmp:
+  build_openmp_openblas:
 
     runs-on: ubuntu-latest
 
@@ -80,16 +80,16 @@ jobs:
     - name: Configure
       shell: bash
       run: |
-        mkdir build_openblas_openmp
-        cmake -B build_openblas_openmp -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=on .
+        mkdir build_openmp_openblas
+        cmake -B build_openmp_openblas -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=on .
     - name: Build
       shell: bash
       run: |
-        cmake --build build_openblas_openmp --config Release
+        cmake --build build_openmp_openblas --config Release
     - name: Run unit tests
       shell: bash
       run: |
-        cd build_openblas_openmp
+        cd build_openmp_openblas
         ctest -V
 
   build_openmp_mkl:

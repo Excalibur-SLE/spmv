@@ -7,40 +7,23 @@
 namespace spmv
 {
 
+//-----------------------------------------------------------------------------
 template <typename T>
-CSRMatrix<T>::CSRMatrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
-                        std::shared_ptr<DeviceExecutor> exec)
-    : CSRMatrix(mat.rows(), mat.cols(), mat.nonZeros(), mat.outerIndexPtr(),
-                mat.innerIndexPtr(), mat.valuePtr(), nullptr, false, exec)
+CSRMatrix<T>::CSRMatrix(std::shared_ptr<DeviceExecutor> exec,
+                        const Eigen::SparseMatrix<T, Eigen::RowMajor>* mat,
+                        const Eigen::Matrix<T, Eigen::Dynamic, 1>* diagonal,
+                        bool symmetric)
+    : CSRMatrix(exec, mat->rows(), mat->cols(), mat->nonZeros(),
+                mat->outerIndexPtr(), mat->innerIndexPtr(), mat->valuePtr(),
+                diagonal ? diagonal->data() : nullptr, symmetric)
 {
 }
-
+//-----------------------------------------------------------------------------
 template <typename T>
-CSRMatrix<T>::CSRMatrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
-                        const Eigen::Matrix<T, Eigen::Dynamic, 1>& diagonal,
-                        bool symmetric, std::shared_ptr<DeviceExecutor> exec)
-    : CSRMatrix(mat.rows(), mat.cols(), mat.nonZeros(), mat.outerIndexPtr(),
-                mat.innerIndexPtr(), mat.valuePtr(), diagonal.data(), symmetric,
-                exec)
-{
-}
-
-template <typename T>
-CSRMatrix<T>::CSRMatrix(int32_t num_rows, int32_t num_cols,
-                        int32_t num_non_zeros, const int32_t* rowptr,
-                        const int32_t* colind, const T* values,
-                        std::shared_ptr<DeviceExecutor> exec)
-    : CSRMatrix(num_rows, num_cols, num_non_zeros, rowptr, colind, values,
-                nullptr, false, exec)
-{
-}
-
-template <typename T>
-CSRMatrix<T>::CSRMatrix(int32_t num_rows, int32_t num_cols,
-                        int32_t num_non_zeros, const int32_t* rowptr,
-                        const int32_t* colind, const T* values,
-                        const T* diagonal, bool symmetric,
-                        std::shared_ptr<DeviceExecutor> exec)
+CSRMatrix<T>::CSRMatrix(std::shared_ptr<DeviceExecutor> exec, int32_t num_rows,
+                        int32_t num_cols, int64_t num_non_zeros,
+                        const int32_t* rowptr, const int32_t* colind,
+                        const T* values, const T* diagonal, bool symmetric)
 {
   this->_exec = exec;
   this->_num_rows = num_rows;
@@ -72,9 +55,9 @@ CSRMatrix<T>::CSRMatrix(int32_t num_rows, int32_t num_cols,
   }
 
   // Initialize SpMV algorithm
-  this->_exec->spmv_init(_op, *this, symmetric);
+  this->_exec->spmv_init(_op, *this);
 }
-
+//-----------------------------------------------------------------------------
 template <typename T>
 CSRMatrix<T>::~CSRMatrix()
 {
@@ -85,7 +68,7 @@ CSRMatrix<T>::~CSRMatrix()
   this->_exec->free(_values);
   this->_exec->free(this->_diagonal);
 }
-
+//-----------------------------------------------------------------------------
 template <typename T>
 size_t CSRMatrix<T>::format_size() const
 {
@@ -94,7 +77,7 @@ size_t CSRMatrix<T>::format_size() const
                 + this->_num_non_zeros * (sizeof(int) + sizeof(T));
   return total_bytes;
 }
-
+//-----------------------------------------------------------------------------
 template <typename T>
 void CSRMatrix<T>::mult(T alpha, T* __restrict__ in, T beta,
                         T* __restrict__ out) const
@@ -102,6 +85,7 @@ void CSRMatrix<T>::mult(T alpha, T* __restrict__ in, T beta,
   if (this->_num_non_zeros > 0 || this->_diagonal != nullptr)
     this->_exec->spmv_run(_op, *this, alpha, in, beta, out);
 }
+//-----------------------------------------------------------------------------
 
 } // namespace spmv
 

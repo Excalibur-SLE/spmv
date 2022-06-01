@@ -17,25 +17,25 @@ template <typename T>
 struct static_false : std::false_type {
 };
 
-constexpr int BLOCK_SIZE = 512;
+constexpr short BLOCK_SIZE = 512;
 
 template <typename T>
 __global__ void csr_sym_gmem_atomics(const int32_t* __restrict__ rowptr,
                                      const int32_t* __restrict__ colind,
                                      const T* __restrict__ values,
                                      const T* __restrict__ diagonal,
-                                     const int num_rows, const T alpha,
+                                     const int32_t num_rows, const T alpha,
                                      const T* __restrict__ in,
                                      T* __restrict__ out)
 {
-  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (i < num_rows) {
     T sum = diagonal[i] * in[i];
 
     if (rowptr != nullptr) {
-      for (int j = rowptr[i]; j < rowptr[i + 1]; ++j) {
-        int col = colind[j];
+      for (int32_t j = rowptr[i]; j < rowptr[i + 1]; ++j) {
+        int32_t col = colind[j];
         T val = values[j];
         sum += val * in[col];
         atomicAdd(&out[col], alpha * val * in[i]);
@@ -47,9 +47,9 @@ __global__ void csr_sym_gmem_atomics(const int32_t* __restrict__ rowptr,
 }
 
 template <typename T>
-void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
-                      int32_t* rowptr, int32_t* colind, T* values,
-                      bool symmetric, const CudaExecutor& exec)
+void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
+                      const int32_t* rowptr, const int32_t* colind,
+                      const T* values, bool symmetric, const CudaExecutor& exec)
 {
   _symmetric = symmetric;
   // FIXME use host exec
@@ -58,14 +58,14 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
     cusparse_data_t* cusparse_data = (cusparse_data_t*)_aux_data;
     if constexpr (std::is_same<T, float>()) {
       CHECK_CUSPARSE(cusparseCreateCsr(
-          &(cusparse_data->_mat), num_rows, num_cols, num_non_zeros, rowptr,
-          colind, values, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-          CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+          &(cusparse_data->_mat), num_rows, num_cols, num_non_zeros,
+          (void*)rowptr, (void*)colind, (void*)values, CUSPARSE_INDEX_32I,
+          CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
     } else if constexpr (std::is_same<T, double>()) {
       CHECK_CUSPARSE(cusparseCreateCsr(
-          &(cusparse_data->_mat), num_rows, num_cols, num_non_zeros, rowptr,
-          colind, values, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-          CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+          &(cusparse_data->_mat), num_rows, num_cols, num_non_zeros,
+          (void*)rowptr, (void*)colind, (void*)values, CUSPARSE_INDEX_32I,
+          CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
     } else {
       static_assert(static_false<T>::value);
     }
@@ -78,7 +78,7 @@ void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
 }
 
 template <typename T>
-void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
+void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
                      const int32_t* rowptr, const int32_t* colind,
                      const T* values, const T* diagonal, T alpha,
                      T* __restrict__ in, T beta, T* __restrict__ out,
@@ -96,8 +96,8 @@ void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
       static_assert(static_false<T>::value);
     }
 
-    const int block_size = BLOCK_SIZE;
-    const int num_blocks = (num_rows + block_size - 1) / block_size;
+    const int32_t block_size = BLOCK_SIZE;
+    const int32_t num_blocks = (num_rows + block_size - 1) / block_size;
     dim3 dimBlock(block_size);
     dim3 dimGrid(num_blocks);
     csr_sym_gmem_atomics<<<dimGrid, dimBlock, 0, exec.get_cuda_stream()>>>(

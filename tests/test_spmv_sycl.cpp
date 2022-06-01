@@ -129,6 +129,7 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
       l2g->local_size() + l2g->num_ghosts(), queue);
   // Initialize from global vector
   memcpy(x_local, x.data() + row_start, ncols_local * sizeof(double));
+  memset(y_local, 0, nrows_local * sizeof(double));
 
   // Update input vector from neighbors
   l2g->update(x_local);
@@ -161,7 +162,13 @@ static bool test_spmv(bool symmetric, sycl::queue& queue)
 
 int main(int argc, char** argv)
 {
-  MPI_Init(&argc, &argv);
+  int provided;
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+  if (provided < MPI_THREAD_FUNNELED) {
+    std::cerr << "The threading support level is lesser than required"
+              << std::endl;
+    MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+  }
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);

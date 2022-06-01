@@ -9,15 +9,15 @@ namespace spmv
 {
 
 template <typename T>
-void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
-                      int32_t* rowptr, int32_t* colind, T* values,
+void CSRSpMV<T>::init(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
+                      const int32_t* rowptr, const int32_t* colind, const T* values,
                       bool symmetric, const OmpOffloadExecutor& exec)
 {
   _symmetric = symmetric;
 }
 
 template <typename T>
-void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
+void CSRSpMV<T>::run(int32_t num_rows, int32_t num_cols, int64_t num_non_zeros,
                      const int32_t* rowptr, const int32_t* colind,
                      const T* values, const T* diagonal, T alpha,
                      T* __restrict__ in, T beta, T* __restrict__ out,

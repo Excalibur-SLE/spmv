@@ -16,15 +16,14 @@ namespace spmv
 class DeviceExecutor;
 
 template <typename T>
-class SPMV_EXPORT COOMatrix : public SubMatrix<T>
+class SPMV_EXPORT COOMatrix final : public SubMatrix<T>
 {
 public:
-  COOMatrix() = delete;
-  COOMatrix(const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat,
-            std::shared_ptr<DeviceExecutor> exec);
-  COOMatrix(int32_t num_rows, int32_t num_cols, int32_t num_non_zeros,
-            const int32_t* rowptr, const int32_t* colind, const T* values,
-            std::shared_ptr<DeviceExecutor> exec);
+  COOMatrix(std::shared_ptr<DeviceExecutor> exec,
+            const Eigen::SparseMatrix<T, Eigen::RowMajor>& mat);
+  COOMatrix(std::shared_ptr<DeviceExecutor> exec, int32_t num_rows,
+            int32_t num_cols, int64_t num_non_zeros, const int32_t* rowptr,
+            const int32_t* colind, const T* values);
   ~COOMatrix();
 
   size_t format_size() const override;
@@ -44,17 +43,16 @@ private:
   int32_t* _rowind = nullptr;
   int32_t* _colind = nullptr;
   T* _values = nullptr;
-  // FIXME maybe convert to pointer
   COOSpMV<T> _op;
 };
 
 /* // These should be hidden from spmv namespace */
 /* void _rowptr2rowind(const ReferenceExecutor& exec, int32_t num_rows, */
-/*                     int32_t num_non_zeros, const int32_t* rowptr, */
+/*                     int64_t num_non_zeros, const int32_t* rowptr, */
 /*                     int32_t* rowind); */
 /* #ifdef _CUDA */
 /* void _rowptr2rowind(const CudaExecutor& exec, int32_t num_rows, */
-/*                     int32_t num_non_zeros, const int32_t* rowptr, */
+/*                     int64_t num_non_zeros, const int32_t* rowptr, */
 /*                     int32_t* rowind); */
 /* #endif // _CUDA */
 

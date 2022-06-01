@@ -23,6 +23,8 @@ class CSRMatrix;
 template <typename T>
 class CSRSpMV;
 
+enum class DeviceType { undefined, cpu, gpu };
+
 // Abstract polymorphic base class for handling a device
 class SPMV_EXPORT DeviceExecutor
 {
@@ -82,36 +84,40 @@ public:
   virtual int get_num_devices() const = 0;
   virtual int get_num_cus() const = 0;
 
-  // Visitable functions (need to be virtual, so can't use templates)
-  // virtual void spmv_init(SpMV<float>& op, SubMatrix<float>& mat) = 0;
-  // COO format
-  // FIXME is there a way to generalize this with SubMatrix and SpMV?
-  virtual void spmv_init(COOSpMV<float>& op, COOMatrix<float>& mat) = 0;
-  virtual void spmv_init(COOSpMV<double>& op, COOMatrix<double>& mat) = 0;
-  virtual void spmv_run(const COOSpMV<float>& op, const COOMatrix<float>& mat,
-                        float alpha, float* __restrict__ in, float beta,
-                        float* __restrict__ out) const = 0;
-  virtual void spmv_run(const COOSpMV<double>& op, const COOMatrix<double>& mat,
-                        double alpha, double* __restrict__ in, double beta,
-                        double* __restrict__ out) const = 0;
-  virtual void spmv_finalize(const COOSpMV<float>& op) const = 0;
-  virtual void spmv_finalize(const COOSpMV<double>& op) const = 0;
-
-  // CSR format
-  virtual void spmv_init(CSRSpMV<float>& op, CSRMatrix<float>& mat,
-                         bool symmetric)
-      = 0;
-  virtual void spmv_init(CSRSpMV<double>& op, CSRMatrix<double>& mat,
-                         bool symmetric)
-      = 0;
+  // CSR format visitors
+  virtual void spmv_init(CSRSpMV<float>& op,
+                         const CSRMatrix<float>& mat) const = 0;
+  virtual void spmv_init(CSRSpMV<double>& op,
+                         const CSRMatrix<double>& mat) const = 0;
   virtual void spmv_run(const CSRSpMV<float>& op, const CSRMatrix<float>& mat,
                         float alpha, float* __restrict__ in, float beta,
                         float* __restrict__ out) const = 0;
   virtual void spmv_run(const CSRSpMV<double>& op, const CSRMatrix<double>& mat,
                         double alpha, double* __restrict__ in, double beta,
                         double* __restrict__ out) const = 0;
-  virtual void spmv_finalize(const CSRSpMV<float>& op) const = 0;
-  virtual void spmv_finalize(const CSRSpMV<double>& op) const = 0;
+  virtual void spmv_finalize(CSRSpMV<float>& op) const = 0;
+  virtual void spmv_finalize(CSRSpMV<double>& op) const = 0;
+
+  // COO format visitors
+  virtual void spmv_init(COOSpMV<float>& op, const COOMatrix<float>& mat) const
+  {
+  }
+  virtual void spmv_init(COOSpMV<double>& op,
+                         const COOMatrix<double>& mat) const
+  {
+  }
+  virtual void spmv_run(const COOSpMV<float>& op, const COOMatrix<float>& mat,
+                        float alpha, float* __restrict__ in, float beta,
+                        float* __restrict__ out) const
+  {
+  }
+  virtual void spmv_run(const COOSpMV<double>& op, const COOMatrix<double>& mat,
+                        double alpha, double* __restrict__ in, double beta,
+                        double* __restrict__ out) const
+  {
+  }
+  virtual void spmv_finalize(COOSpMV<float>& op) const {}
+  virtual void spmv_finalize(COOSpMV<double>& op) const {}
 
   // Gather ghosts
   virtual void gather_ghosts_run(int num_indices, const int32_t* indices,
@@ -133,13 +139,15 @@ protected:
                         const void* src_ptr, size_t num_bytes) const = 0;
 
   struct DeviceInfo {
-    int device_id = -1;
+    DeviceType type = DeviceType::undefined;
+    int id = -1;
   };
   DeviceInfo _dev_info;
 
 public:
   const DeviceInfo& get_device_info() const { return _dev_info; }
-  int get_device_id() const { return _dev_info.device_id; }
+  DeviceType get_device_type() const { return _dev_info.type; }
+  int get_device_id() const { return _dev_info.id; }
 };
 
 } // namespace spmv

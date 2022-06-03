@@ -36,13 +36,13 @@ if(CMAKE_VERSION VERSION_LESS 3.18)
 endif()
 
 target_include_directories(${LIB_NAME} PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
-if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+if(CMAKE_CXX_COMPILER_ID MATCHES "NVHPC" OR CMAKE_CXX_COMPILER_ID MATCHES "PGI")
   target_link_libraries(${LIB_NAME}
-    PUBLIC CUDA::cudart CUDA::cublas CUDA::cusparse
+    PUBLIC CUDA::cudart ${CUBLAS_LIB} ${CUSPARSE_LIB}
     )
 else()
   target_link_libraries(${LIB_NAME}
-    PUBLIC CUDA::cudart ${CUBLAS_LIB} ${CUSPARSE_LIB}
+    PUBLIC CUDA::cudart CUDA::cublas CUDA::cusparse
     )
   target_include_directories(${LIB_NAME} PUBLIC "${CUDAToolkit_ROOT}/../math_libs/include")
 endif()
